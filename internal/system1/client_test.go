@@ -21,11 +21,11 @@ func TestCall(t *testing.T) {
 		canceled                  bool
 		wantErr                   string
 	}{
-		{name: "decisions", path: "/api/alpha/decisions", response: `{"answers":{}}`, status: 200, key: testKey},
-		{name: "without key", path: "/v1/systemone", response: `{"answers":{}}`, status: 200},
+		{name: "decisions", path: "/api/alpha/decisions", response: emptyAnswers, status: 200, key: testKey},
+		{name: "without key", path: "/v1/systemone", response: emptyAnswers, status: 200},
 		{name: "another endpoint", path: otherEndpoint, response: `{"result":"ok"}`, status: 200, key: testKey},
 		{name: "HTTP error", path: otherEndpoint, response: `{"error":"denied"}`, status: 403, wantErr: "HTTP 403", key: testKey},
-		{name: "invalid JSON", path: otherEndpoint, response: "invalid", status: 200, wantErr: "invalid JSON", key: testKey},
+		{name: invalidJSON, path: otherEndpoint, response: "invalid", status: 200, wantErr: invalidJSON, key: testKey},
 		{name: "canceled", path: otherEndpoint, canceled: true, wantErr: "context canceled", key: testKey},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -53,11 +53,11 @@ func TestCall(t *testing.T) {
 				}
 
 				return &http.Response{StatusCode: tc.status, Body: io.NopCloser(strings.NewReader(tc.response))}, nil
-			}), tc.key)
+			}), Config{APIKey: tc.key}, nil, io.Discard)
 
-			body, err := client.Call(
+			body, err := client.call(
 				ctx,
-				PreparedRequest{Endpoint: "https://example.test" + tc.path, Body: []byte(`{"input":1}`)},
+				preparedRequest{Endpoint: "https://example.test" + tc.path, Body: []byte(`{"input":1}`)},
 			)
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {

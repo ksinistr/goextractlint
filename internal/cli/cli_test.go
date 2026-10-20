@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bytes"
@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"goextractlint/internal/domain"
+	"goextractlint/internal/goparse"
 )
 
 type transportFunc func(*http.Request) (*http.Response, error)
@@ -103,7 +103,7 @@ func TestArgumentValidation(t *testing.T) {
 
 			var out, status bytes.Buffer
 
-			err := runCLI(
+			err := Run(
 				context.Background(),
 				tc.args,
 				tc.key,
@@ -230,7 +230,7 @@ func TestCLI(t *testing.T) {
 				return cacheDir, nil
 			}
 
-			err := runCLI(ctx, args, testAPIKey, client, cacheHome, input, output, &status)
+			err := Run(ctx, args, testAPIKey, client, cacheHome, input, output, &status)
 			if (err != nil) != tc.bad || calls != tc.wantCalls || bytes.Count(out.Bytes(), []byte("\n")) != tc.lines {
 				t.Fatalf("err=%v calls=%d out=%s", err, calls, &out)
 			}
@@ -265,14 +265,14 @@ func TestStreamingContextCache(t *testing.T) {
 			cacheDir := t.TempDir()
 			calls := 0
 
-			var inputs []domain.Function
+			var inputs []goparse.Function
 
 			client := &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
 				calls++
 
 				var payload struct {
 					State struct {
-						Function domain.Function `json:"function"`
+						Function goparse.Function `json:"function"`
 					} `json:"state"`
 				}
 				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -286,7 +286,7 @@ func TestStreamingContextCache(t *testing.T) {
 			run := func(flags []string, input io.ReadCloser, output io.Writer) error {
 				var status bytes.Buffer
 
-				err := runCLI(context.Background(), flags, testAPIKey, client, func() (string, error) {
+				err := Run(context.Background(), flags, testAPIKey, client, func() (string, error) {
 					if len(flags) > 0 && flags[0] == noCacheFlag {
 						t.Error("cache initialized during bypass")
 					}

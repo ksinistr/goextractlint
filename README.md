@@ -77,21 +77,21 @@ Exit code `0` means no technical errors; a nonzero code means the output may be 
 ## Development
 
 All changes must follow the [architecture principles](ARCHITECTURE.md).
-Run `make test` and `make check` to verify changes; tests make no paid requests.
+Run `make build && make lint && make test` to verify changes; tests make no paid requests.
 
 ## Project structure
 
-- `cmd/goextractlint`: CLI setup, analysis workflow, JSONL output, and the adapter
-  between domain concepts and System1 requests.
+- `cmd/goextractlint`: process setup, environment, signals, and standard streams.
+- `internal/cli`: arguments, input selection, sequential evaluation, JSONL output,
+  diagnostics, and dependency wiring.
 - `internal/filewalk`: incremental discovery of Go files, exclusions, and path
   deduplication; does not parse file contents.
 - `internal/linerange`: parsing of `path:start-end` line ranges and matching
   functions that overlap them.
-- `internal/goparse`: Go parsing, function extraction, and bounded package context;
-  keeps AST snapshots and package indexes in memory.
-- `internal/domain`: functions, context, decisions, validation, and the Extract
-  Function criterion.
-- `internal/system1`: HTTP transport for System1 endpoints, independent of domain
-  concepts.
-- `internal/cache`: decision caching and atomic filesystem storage, keyed by the
-  exact request, endpoint, and model.
+- `internal/goparse`: function and context types, Go parsing, function extraction,
+  and bounded package context; keeps AST snapshots and package indexes in memory.
+- `internal/system1`: function evaluation, the Extract Function criterion, request
+  preparation and context fitting, HTTP transport, decision types and validation,
+  and caching keyed by the exact request, endpoint, and model.
+- `internal/cache`: atomic filesystem storage of decisions; depends on System1
+  decision types and does not prepare requests or call the model.

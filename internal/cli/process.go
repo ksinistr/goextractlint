@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -7,41 +7,44 @@ import (
 	"fmt"
 	"io"
 
-	"goextractlint/internal/domain"
 	"goextractlint/internal/filewalk"
 	"goextractlint/internal/goparse"
+	"goextractlint/internal/system1"
 )
 
-type Result struct {
-	File               string         `json:"file"`
-	Function           string         `json:"function"`
-	StartLine          int            `json:"start_line"`
-	EndLine            int            `json:"end_line"`
-	Verdict            domain.Verdict `json:"verdict,omitempty"`
-	ExtractProbability *float64       `json:"extract_probability,omitempty"`
-	Error              string         `json:"error,omitempty"`
+type functionEvaluator interface {
+	Evaluate(context.Context, goparse.Function) (system1.Decision, error)
 }
 
-func runAnalysis(
+type Result struct {
+	File               string          `json:"file"`
+	Function           string          `json:"function"`
+	StartLine          int             `json:"start_line"`
+	EndLine            int             `json:"end_line"`
+	Verdict            system1.Verdict `json:"verdict,omitempty"`
+	ExtractProbability *float64        `json:"extract_probability,omitempty"`
+	Error              string          `json:"error,omitempty"`
+}
+
+func processFunctions(
 	ctx context.Context,
 	paths []string,
 	paths0 io.Reader,
 	stopRead func() error,
-	include func(domain.Function) bool,
+	include func(goparse.Function) bool,
 	loader *goparse.ContextLoader,
-	analyzer functionAnalyzer,
-	target backend,
+	evaluator functionEvaluator,
 	output, diagnostics io.Writer,
 ) error {
 	encoder := json.NewEncoder(output)
 	failed := false
 
-	err := walkFunctions(ctx, paths, paths0, stopRead, loader, func(function domain.Function) error {
+	err := walkFunctions(ctx, paths, paths0, stopRead, loader, func(function goparse.Function) error {
 		if !include(function) {
 			return nil
 		}
 
-		result, err := analyzeFunction(ctx, function, loader, analyzer, target)
+		result, err := evaluateFunction(ctx, function, loader, evaluator)
 		if err != nil {
 			return err
 		}
@@ -68,43 +71,37 @@ func runAnalysis(
 	return err
 }
 
-func includeAll(domain.Function) bool {
+func includeAll(goparse.Function) bool {
 	return true
 }
 
-func analyzeFunction(
+func evaluateFunction(
 	ctx context.Context,
-	function domain.Function,
+	function goparse.Function,
 	loader *goparse.ContextLoader,
-	analyzer functionAnalyzer,
-	target backend,
+	evaluator functionEvaluator,
 ) (Result, error) {
 	function, err := loader.Prepare(ctx, function)
 	if err != nil {
 		return Result{}, fmt.Errorf("prepare source context: %w", err)
 	}
 
-	request, err := prepareAnalysis(target, function)
-	if err != nil {
-		return Result{}, fmt.Errorf("prepare analysis request: %w", err)
-	}
-
 	if err := ctx.Err(); err != nil {
 		return Result{}, fmt.Errorf("context: %w", err)
 	}
 
-	decision, analysisErr := analyzer.Analyze(ctx, request)
+	decision, evaluationErr := evaluator.Evaluate(ctx, function)
 	if err := ctx.Err(); err != nil {
 		return Result{}, fmt.Errorf("context: %w", err)
 	}
 
-	if errors.Is(analysisErr, context.Canceled) ||
-		errors.Is(analysisErr, context.DeadlineExceeded) && ctx.Err() != nil {
-		return Result{}, fmt.Errorf("analyze function: %w", analysisErr)
+	if errors.Is(evaluationErr, context.Canceled) ||
+		errors.Is(evaluationErr, context.DeadlineExceeded) && ctx.Err() != nil {
+		return Result{}, fmt.Errorf("analyze function: %w", evaluationErr)
 	}
 
-	if analysisErr == nil {
-		analysisErr = decision.Validate()
+	if evaluationErr == nil {
+		evaluationErr = decision.Validate()
 	}
 
 	result := Result{
@@ -114,8 +111,8 @@ func analyzeFunction(
 		EndLine:   function.EndLine,
 	}
 
-	if analysisErr != nil {
-		result.Error = analysisErr.Error()
+	if evaluationErr != nil {
+		result.Error = evaluationErr.Error()
 	} else {
 		result.Verdict, result.ExtractProbability = decision.Verdict, decision.ExtractProbability
 	}
@@ -129,7 +126,7 @@ func walkFunctions(
 	paths0 io.Reader,
 	stopRead func() error,
 	loader *goparse.ContextLoader,
-	visit func(domain.Function) error,
+	visit func(goparse.Function) error,
 ) error {
 	err := filewalk.Walk(ctx, paths, paths0, stopRead, func(path string) error {
 		functions, err := loader.Functions(path)

@@ -12,8 +12,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"goextractlint/internal/domain"
 )
 
 const typeKind = "type"
@@ -152,8 +150,8 @@ func isPackageSource(entry fs.DirEntry) (bool, error) {
 
 func (l *ContextLoader) Prepare(
 	ctx context.Context,
-	function domain.Function,
-) (domain.Function, error) {
+	function Function,
+) (Function, error) {
 	index, err := l.load(ctx, filepath.Dir(function.File), function.Package)
 	if err != nil {
 		return function, err
@@ -201,7 +199,7 @@ func (l *ContextLoader) Prepare(
 	return function, nil
 }
 
-func contextItems(selected map[string]definition) []domain.ContextItem {
+func contextItems(selected map[string]definition) []ContextItem {
 	definitions := make([]definition, 0, len(selected))
 	for _, d := range selected {
 		definitions = append(definitions, d)
@@ -209,7 +207,7 @@ func contextItems(selected map[string]definition) []domain.ContextItem {
 
 	sortContextDefinitions(definitions)
 
-	items := make([]domain.ContextItem, 0, len(definitions))
+	items := make([]ContextItem, 0, len(definitions))
 	for _, d := range definitions {
 		items = append(items, contextItem(d))
 	}
@@ -241,10 +239,10 @@ func sortContextDefinitions(definitions []definition) {
 	})
 }
 
-func contextItem(d definition) domain.ContextItem {
+func contextItem(d definition) ContextItem {
 	start, end := d.file.positions.Position(d.start), d.file.positions.Position(d.node.End())
 
-	return domain.ContextItem{
+	return ContextItem{
 		Kind:   d.kind,
 		Source: string(d.file.data[start.Offset:end.Offset]),
 	}

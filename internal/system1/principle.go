@@ -1,6 +1,6 @@
-package domain
+package system1
 
-func Principle() string {
+func principle() string {
 	return "Evaluate only Martin Fowler's Function Length principle: separate intention from " +
 		"implementation.\n" +
 		"Look for a fragment whose purpose requires studying implementation details and whose " +

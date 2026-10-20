@@ -49,7 +49,7 @@ func Walk(
 }
 
 func excluded(path string) bool {
-	for _, part := range strings.Split(filepath.Clean(path), string(filepath.Separator)) {
+	for part := range strings.SplitSeq(filepath.Clean(path), string(filepath.Separator)) {
 		if part == ".git" || part == "vendor" {
 			return true
 		}

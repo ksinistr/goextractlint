@@ -10,8 +10,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"goextractlint/internal/domain"
 )
 
 const (
@@ -225,7 +223,7 @@ func TestTargetFiltersAndLazyContext(t *testing.T) {
 
 			loader := NewContextLoader()
 
-			var got []domain.Function
+			var got []Function
 
 			err := Walk(
 				context.Background(),
@@ -233,7 +231,7 @@ func TestTargetFiltersAndLazyContext(t *testing.T) {
 				nil,
 				nil,
 				loader,
-				func(f domain.Function) error {
+				func(f Function) error {
 					f, err := loader.Prepare(context.Background(), f)
 					if err == nil {
 						got = append(got, f)

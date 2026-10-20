@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"goextractlint/internal/domain"
+	"goextractlint/internal/system1"
 )
 
 const Version = 1
@@ -16,8 +16,8 @@ const Version = 1
 type (
 	Store struct{ dir string }
 	entry struct {
-		Version  int             `json:"version"`
-		Decision domain.Decision `json:"decision"`
+		Version  int              `json:"version"`
+		Decision system1.Decision `json:"decision"`
 	}
 )
 
@@ -32,30 +32,30 @@ func (s *Store) path(key string) (string, error) {
 	return filepath.Join(s.dir, key+".json"), nil
 }
 
-func (s *Store) Get(key string) (domain.Decision, bool, error) {
+func (s *Store) Get(key string) (system1.Decision, bool, error) {
 	path, err := s.path(key)
 	if err != nil {
-		return domain.Decision{}, false, fmt.Errorf("read cache: %w", err)
+		return system1.Decision{}, false, fmt.Errorf("read cache: %w", err)
 	}
 
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return domain.Decision{}, false, nil
+		return system1.Decision{}, false, nil
 	}
 
 	if err != nil {
-		return domain.Decision{}, false, fmt.Errorf("read cache: %w", err)
+		return system1.Decision{}, false, fmt.Errorf("read cache: %w", err)
 	}
 
 	var stored entry
 	if json.Unmarshal(data, &stored) != nil || stored.Version != Version || stored.Decision.Validate() != nil {
-		return domain.Decision{}, false, nil
+		return system1.Decision{}, false, nil
 	}
 
 	return stored.Decision, true, nil
 }
 
-func (s *Store) Put(key string, decision domain.Decision) error {
+func (s *Store) Put(key string, decision system1.Decision) error {
 	if err := decision.Validate(); err != nil {
 		return fmt.Errorf("validate decision: %w", err)
 	}

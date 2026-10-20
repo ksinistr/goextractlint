@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"goextractlint/internal/domain"
 	"goextractlint/internal/filewalk"
 )
 
@@ -79,7 +78,7 @@ func TestWalk(t *testing.T) {
 				nil,
 				nil,
 				NewContextLoader(),
-				func(function domain.Function) error {
+				func(function Function) error {
 					path, err := filepath.Rel(root, function.File)
 					if err != nil {
 						return fmt.Errorf("path/filepath.Rel: %w", err)
@@ -212,7 +211,7 @@ func TestPaths(t *testing.T) {
 
 			var got []string
 
-			err := Walk(context.Background(), tc.args, input, nil, NewContextLoader(), func(f domain.Function) error {
+			err := Walk(context.Background(), tc.args, input, nil, NewContextLoader(), func(f Function) error {
 				got = append(got, f.Name)
 				if !filepath.IsAbs(f.File) {
 					t.Fatal("relative identity")
@@ -259,7 +258,7 @@ func TestPathPipe(t *testing.T) {
 
 			done := make(chan error, 1)
 			go func() {
-				done <- Walk(ctx, nil, input, reader.Close, NewContextLoader(), func(f domain.Function) error { visited <- f.Name; return nil })
+				done <- Walk(ctx, nil, input, reader.Close, NewContextLoader(), func(f Function) error { visited <- f.Name; return nil })
 			}()
 
 			if _, err := io.WriteString(writer, filepath.Join(root, testSourcePath)+"\x00"); err != nil {
@@ -324,7 +323,7 @@ func Walk(
 	input io.Reader,
 	closeInput func() error,
 	loader *ContextLoader,
-	visit func(domain.Function) error,
+	visit func(Function) error,
 ) error {
 	err := filewalk.Walk(ctx, paths, input, closeInput, func(path string) error {
 		functions, err := loader.Functions(path)

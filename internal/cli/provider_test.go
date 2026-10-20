@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bytes"
@@ -164,7 +164,7 @@ func TestRunCLI_provider(t *testing.T) {
 
 			args := append(append([]string{noCacheFlag}, tc.args...), testSourcePath)
 
-			err := runCLI(context.Background(), args, tc.key, client, nil, failReader{t}, &out, &status)
+			err := Run(context.Background(), args, tc.key, client, nil, failReader{t}, &out, &status)
 			if err != nil || calls != 1 {
 				t.Fatalf("err=%v calls=%d stderr=%s", err, calls, &status)
 			}

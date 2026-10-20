@@ -1,4 +1,4 @@
-package main
+package system1
 
 import (
 	"testing"
@@ -10,7 +10,7 @@ func TestDecode(t *testing.T) {
 		probability  *float64
 		bad          bool
 	}{
-		{name: missingPath, answer: `{}`, bad: true},
+		{name: "missing", answer: `{}`, bad: true},
 		{name: "unknown", answer: `{"type":"choice","choice":"other"}`, bad: true},
 		{name: "absent", answer: `{"type":"choice","choice":"extract","confidence":0.9}`},
 		{name: "null", answer: `{"type":"choice","choice":"keep","probabilities":{"extract":null}}`},

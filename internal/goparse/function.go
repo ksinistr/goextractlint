@@ -1,4 +1,4 @@
-package domain
+package goparse
 
 type Function struct {
 	File             string        `json:"file"`

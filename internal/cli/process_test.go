@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bytes"
@@ -11,11 +11,11 @@ import (
 	"strings"
 	"testing"
 
-	"goextractlint/internal/domain"
 	"goextractlint/internal/goparse"
+	"goextractlint/internal/system1"
 )
 
-type analyzerFunc func(context.Context, preparedRequest) (domain.Decision, error)
+type evaluatorFunc func(context.Context, goparse.Function) (system1.Decision, error)
 
 const (
 	extractAnswer = "extract"
@@ -34,7 +34,7 @@ const (
 	writerMode       = "writer"
 )
 
-func (f analyzerFunc) Analyze(ctx context.Context, r preparedRequest) (domain.Decision, error) {
+func (f evaluatorFunc) Evaluate(ctx context.Context, r goparse.Function) (system1.Decision, error) {
 	return f(ctx, r)
 }
 
@@ -75,7 +75,7 @@ func TestRun(t *testing.T) {
 			var output, status bytes.Buffer
 
 			calls := 0
-			analyzer := analyzerFunc(func(_ context.Context, _ preparedRequest) (domain.Decision, error) {
+			evaluator := evaluatorFunc(func(_ context.Context, _ goparse.Function) (system1.Decision, error) {
 				if calls > 0 && bytes.Count(output.Bytes(), []byte("\n")) != calls {
 					t.Fatal("previous result not written")
 				}
@@ -84,10 +84,10 @@ func TestRun(t *testing.T) {
 				calls++
 
 				if answer == errorAnswer {
-					return domain.Decision{}, errors.New("HTTP 429")
+					return system1.Decision{}, errors.New("HTTP 429")
 				}
 
-				d := domain.Decision{Verdict: domain.Verdict(answer)}
+				d := system1.Decision{Verdict: system1.Verdict(answer)}
 
 				if tc.probability {
 					p := 0.75
@@ -96,15 +96,14 @@ func TestRun(t *testing.T) {
 
 				return d, nil
 			})
-			err := runAnalysis(
+			err := processFunctions(
 				context.Background(),
 				[]string{root},
 				nil,
 				nil,
 				includeAll,
 				goparse.NewContextLoader(),
-				analyzer,
-				backend{endpoint: "http://unused", model: "model", maxTokens: openRouterMaxTokens},
+				evaluator,
 				&output,
 				&status,
 			)
@@ -212,24 +211,23 @@ func TestFatalStops(t *testing.T) {
 				cancel()
 			}
 
-			analyzer := analyzerFunc(func(context.Context, preparedRequest) (domain.Decision, error) {
+			evaluator := evaluatorFunc(func(context.Context, goparse.Function) (system1.Decision, error) {
 				calls++
 				if mode == cancelRequest && calls == 2 {
 					cancel()
-					return domain.Decision{}, context.Canceled
+					return system1.Decision{}, context.Canceled
 				}
 
-				return domain.Decision{Verdict: domain.Keep}, nil
+				return system1.Decision{Verdict: system1.Keep}, nil
 			})
-			err := runAnalysis(
+			err := processFunctions(
 				ctx,
 				paths,
 				input,
 				nil,
 				includeAll,
 				goparse.NewContextLoader(),
-				analyzer,
-				backend{endpoint: "http://unused", model: "m", maxTokens: openRouterMaxTokens},
+				evaluator,
 				out,
 				&status,
 			)

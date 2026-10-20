@@ -9,35 +9,56 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"goextractlint/internal/goparse"
 )
 
 type HTTPClient interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
-type PreparedRequest struct {
+type preparedRequest struct {
 	Endpoint string
 	Model    string
 	Body     []byte
 }
 
+type Config struct {
+	Endpoint     string
+	Model        string
+	APIKey       string
+	MaxTokens    int
+	RefreshCache bool
+}
+
 type Client struct {
-	http   HTTPClient
-	apiKey string
+	http        HTTPClient
+	config      Config
+	store       DecisionStore
+	diagnostics io.Writer
 }
 
-func NewClient(client HTTPClient, apiKey string) *Client {
-	return &Client{http: client, apiKey: apiKey}
+func NewClient(client HTTPClient, config Config, store DecisionStore, diagnostics io.Writer) *Client {
+	return &Client{http: client, config: config, store: store, diagnostics: diagnostics}
 }
 
-func (c *Client) Call(ctx context.Context, prepared PreparedRequest) (body []byte, resultErr error) {
+func (c *Client) Evaluate(ctx context.Context, function goparse.Function) (Decision, error) {
+	request, err := prepareRequest(c.config, function)
+	if err != nil {
+		return Decision{}, fmt.Errorf("prepare evaluation request: %w", err)
+	}
+
+	return c.evaluateRequest(ctx, request)
+}
+
+func (c *Client) call(ctx context.Context, prepared preparedRequest) (body []byte, resultErr error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, prepared.Endpoint, bytes.NewReader(prepared.Body))
 	if err != nil {
 		return nil, fmt.Errorf("net/http.NewRequestWithContext: %w", err)
 	}
 
-	if c.apiKey != "" {
-		request.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if c.config.APIKey != "" {
+		request.Header.Set("Authorization", "Bearer "+c.config.APIKey)
 	}
 
 	request.Header.Set("Content-Type", "application/json")

@@ -1,4 +1,4 @@
-package main
+package system1
 
 import (
 	"context"
@@ -10,8 +10,14 @@ import (
 	"strings"
 	"testing"
 
-	"goextractlint/internal/domain"
-	"goextractlint/internal/system1"
+	"goextractlint/internal/goparse"
+)
+
+const (
+	evaluationTestModel = "test/jev"
+	typeContextKind     = "type"
+	emptyAnswers        = `{"answers":{}}`
+	invalidJSON         = "invalid JSON"
 )
 
 func TestJevResponses(t *testing.T) {
@@ -25,16 +31,16 @@ func TestJevResponses(t *testing.T) {
 			name: "extract",
 			body: `{"answers":{"verdict":{"type":"choice","choice":"extract","confidence":0.8,"probabilities":{"extract":0.9,"keep":0.1,"insufficient_context":0}}},"usage":{"cost":0.0001}}`,
 		},
-		{name: keepAnswer, body: `{"answers":{"verdict":{"type":"choice","choice":"keep"}}}`},
+		{name: "keep", body: `{"answers":{"verdict":{"type":"choice","choice":"keep"}}}`},
 		{
 			name: "insufficient context",
 			body: `{"answers":{"verdict":{"type":"choice","choice":"insufficient_context"}}}`,
 		},
 		{name: "HTTP failure", status: 401, body: `{"error":{"message":"unauthorized"}}`, wantErr: "HTTP 401"},
 		{name: "error in successful envelope", body: `{"error":{"message":"provider failed"}}`, wantErr: "API error"},
-		{name: "invalid API JSON", body: `upstream error`, wantErr: "invalid JSON"},
+		{name: "invalid API JSON", body: `upstream error`, wantErr: invalidJSON},
 		{name: "oversized", body: strings.Repeat(" ", (8<<20)+1), wantErr: "exceeds 8 MiB"},
-		{name: "missing answer", body: `{"answers":{}}`, wantErr: "valid verdict"},
+		{name: "missing answer", body: emptyAnswers, wantErr: "valid verdict"},
 		{
 			name:    "unknown verdict",
 			body:    `{"answers":{"verdict":{"type":"choice","choice":"other"}}}`,
@@ -43,14 +49,14 @@ func TestJevResponses(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			function := domain.Function{
+			function := goparse.Function{
 				File:      "example.go",
 				Name:      "Example",
 				Package:   "p",
 				StartLine: 2,
 				EndLine:   2,
 				Source:    "func Example() {}",
-				Context: []domain.ContextItem{
+				Context: []goparse.ContextItem{
 					{Kind: typeContextKind, Source: "type Value int"},
 				},
 			}
@@ -67,8 +73,8 @@ func TestJevResponses(t *testing.T) {
 				var payload struct {
 					Model string `json:"model"`
 					State struct {
-						Principle string          `json:"principle"`
-						Function  domain.Function `json:"function"`
+						Principle string           `json:"principle"`
+						Function  goparse.Function `json:"function"`
 					} `json:"state"`
 					Questions map[string]any `json:"questions"`
 				}
@@ -85,7 +91,7 @@ func TestJevResponses(t *testing.T) {
 					t.Error(err)
 				}
 
-				if payload.Model != "test/jev" || payload.State.Principle != domain.Principle() ||
+				if payload.Model != evaluationTestModel || payload.State.Principle != principle() ||
 					!reflect.DeepEqual(payload.State.Function, function) ||
 					payload.Questions["verdict"] == nil {
 					t.Error("incorrect model, function or instructions")
@@ -101,13 +107,19 @@ func TestJevResponses(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := newSystem1Analyzer(system1.NewClient(server.Client(), "test-key"))
+			config := Config{
+				Endpoint:  server.URL + "/api/alpha/decisions",
+				Model:     evaluationTestModel,
+				APIKey:    "test-key",
+				MaxTokens: 8192,
+			}
+			client := NewClient(server.Client(), config, nil, io.Discard)
 
-			prepared, err := prepareAnalysis(
-				backend{
-					endpoint:  server.URL + "/api/alpha/decisions",
-					model:     "test/jev",
-					maxTokens: openRouterMaxTokens,
+			prepared, err := prepareRequest(
+				Config{
+					Endpoint:  server.URL + "/api/alpha/decisions",
+					Model:     evaluationTestModel,
+					MaxTokens: 8192,
 				},
 				function,
 			)
@@ -115,9 +127,10 @@ func TestJevResponses(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			result, err := client.Analyze(context.Background(), prepared)
+			result, err := client.Evaluate(context.Background(), function)
+
 			if string(sent) != string(prepared.Body) || prepared.Endpoint != server.URL+"/api/alpha/decisions" ||
-				prepared.Model != "test/jev" {
+				prepared.Model != evaluationTestModel {
 				t.Fatal("prepared request differs from HTTP")
 			}
 
@@ -133,58 +146,58 @@ func TestJevResponses(t *testing.T) {
 }
 
 func Test_fitContext(t *testing.T) {
-	small := domain.ContextItem{Kind: typeContextKind, Source: "type Small int"}
-	other := domain.ContextItem{Kind: typeContextKind, Source: "type Other int"}
-	huge := domain.ContextItem{
+	small := goparse.ContextItem{Kind: typeContextKind, Source: "type Small int"}
+	other := goparse.ContextItem{Kind: typeContextKind, Source: "type Other int"}
+	huge := goparse.ContextItem{
 		Kind:   typeContextKind,
 		Source: "type Huge struct{ F string `" + strings.Repeat("x", 8000) + "` }",
 	}
 
 	for _, tc := range []struct {
 		name          string
-		context       []domain.ContextItem
+		context       []goparse.ContextItem
 		truncated     bool
 		maxTokens     int
-		want          []domain.ContextItem
+		want          []goparse.ContextItem
 		wantTruncated bool
 	}{
 		{
 			name:      "all fit",
-			context:   []domain.ContextItem{small, other},
-			maxTokens: ollamaMaxTokens,
-			want:      []domain.ContextItem{small, other},
+			context:   []goparse.ContextItem{small, other},
+			maxTokens: 2048,
+			want:      []goparse.ContextItem{small, other},
 		},
 		{
 			name:          "skip large item and include following",
-			context:       []domain.ContextItem{huge, small},
-			maxTokens:     ollamaMaxTokens,
-			want:          []domain.ContextItem{small},
+			context:       []goparse.ContextItem{huge, small},
+			maxTokens:     2048,
+			want:          []goparse.ContextItem{small},
 			wantTruncated: true,
 		},
 		{
 			name:          "nothing fits",
-			context:       []domain.ContextItem{small},
+			context:       []goparse.ContextItem{small},
 			maxTokens:     1,
 			wantTruncated: true,
 		},
 		{
 			name:          "keeps earlier truncation",
-			context:       []domain.ContextItem{small},
+			context:       []goparse.ContextItem{small},
 			truncated:     true,
-			maxTokens:     ollamaMaxTokens,
-			want:          []domain.ContextItem{small},
+			maxTokens:     2048,
+			want:          []goparse.ContextItem{small},
 			wantTruncated: true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			function := domain.Function{
+			function := goparse.Function{
 				File:             "example.go",
 				Name:             "Example",
 				Source:           "func Example() {}",
 				Context:          tc.context,
 				ContextTruncated: tc.truncated,
 			}
-			target := backend{model: testModel, maxTokens: tc.maxTokens}
+			target := Config{Model: evaluationTestModel, MaxTokens: tc.maxTokens}
 
 			got, err := fitContext(target, function)
 			if err != nil {
@@ -195,7 +208,7 @@ func Test_fitContext(t *testing.T) {
 				t.Fatalf("context=%+v truncated=%v", got.Context, got.ContextTruncated)
 			}
 
-			data, err := encodeAnalysis(target.model, got)
+			data, err := encodeRequest(target.Model, got)
 			if err != nil {
 				t.Fatal(err)
 			}

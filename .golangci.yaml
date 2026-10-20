@@ -1,0 +1,150 @@
+version: "2"
+
+run:
+  timeout: 3m
+
+linters:
+  default: none
+
+  enable:
+    - misspell
+    - dupword
+    - godot
+
+    - gocognit
+    - revive
+    - gocritic
+    - dupl
+    - goconst
+    - iface
+    - lll
+    - nestif
+    - nolintlint
+    - predeclared
+    - recvcheck
+    - thelper
+    - unparam
+    - whitespace
+    - wsl_v5
+    - nakedret
+    - gochecknoglobals
+    - gochecknoinits
+    - interfacebloat
+    - intrange
+    - usestdlibvars
+    - unconvert
+    - wastedassign
+    - errname
+
+    - errcheck
+    - errorlint
+    - exhaustive
+    - govet
+    - staticcheck
+    - wrapcheck
+    - bodyclose
+    - unused
+    - ineffassign
+    - noctx
+
+  exclusions:
+    rules:
+      - path: _test\.go$
+        linters:
+          - gocognit
+          - nestif
+          - dupl
+          - lll
+
+  settings:
+    gocognit:
+      min-complexity: 20
+
+    nestif:
+      min-complexity: 5
+
+    lll:
+      line-length: 120
+
+    wsl_v5:
+      allow-first-in-block: true
+      allow-whole-block: false
+      branch-max-lines: 2
+
+    nakedret:
+      max-func-lines: 0
+
+    nolintlint:
+      require-specific: true
+      require-explanation: true
+
+    godot:
+      scope: declarations
+      capital: true
+
+    revive:
+      rules:
+        - name: indent-error-flow
+        - name: unexported-return
+        - name: function-result-limit
+          arguments: [3]
+        - name: early-return
+        - name: superfluous-else
+        - name: confusing-naming
+        - name: confusing-results
+        - name: bare-return
+        - name: empty-block
+        - name: empty-lines
+        - name: unnecessary-stmt
+        - name: redefines-builtin-id
+        - name: use-any
+        - name: var-naming
+        - name: receiver-naming
+        - name: context-as-argument
+        - name: import-shadowing
+        - name: deep-exit
+        - name: unused-parameter
+        - name: unused-receiver
+        - name: error-strings
+        - name: error-naming
+        - name: errorf
+        - name: defer
+        - name: range-val-address
+        - name: struct-tag
+        - name: modifies-value-receiver
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+
+    exhaustive:
+      default-signifies-exhaustive: false
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      module-path: goextractlint
+    goimports:
+      local-prefixes:
+        - goextractlint

@@ -134,20 +134,24 @@ func walkFunctions(
 			return fmt.Errorf("load functions: %w", err)
 		}
 
-		for _, function := range functions {
-			if err := ctx.Err(); err != nil {
-				return fmt.Errorf("context: %w", err)
-			}
-
-			if err := visit(function); err != nil {
-				return fmt.Errorf("visit function: %w", err)
-			}
-		}
-
-		return nil
+		return visitFunctions(ctx, functions, visit)
 	})
 	if err != nil {
 		return fmt.Errorf("walk source files: %w", err)
+	}
+
+	return nil
+}
+
+func visitFunctions(ctx context.Context, functions []goparse.Function, visit func(goparse.Function) error) error {
+	for _, function := range functions {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("context: %w", err)
+		}
+
+		if err := visit(function); err != nil {
+			return fmt.Errorf("visit function: %w", err)
+		}
 	}
 
 	return nil

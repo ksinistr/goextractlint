@@ -2,6 +2,7 @@ version: "2"
 
 run:
   timeout: 3m
+  tests: false
 
 linters:
   default: none
@@ -11,6 +12,7 @@ linters:
     - dupword
     - godot
 
+    - cyclop
     - gocognit
     - revive
     - gocritic
@@ -57,8 +59,11 @@ linters:
           - lll
 
   settings:
+    cyclop:
+      max-complexity: 10
+
     gocognit:
-      min-complexity: 20
+      min-complexity: 10
 
     nestif:
       min-complexity: 5

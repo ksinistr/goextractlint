@@ -105,32 +105,36 @@ func (l *ContextLoader) load(
 			return nil, fmt.Errorf("context: %w", err)
 		}
 
-		eligible, err := isPackageSource(entry)
-		if err != nil {
+		if err := l.addPackageSource(index, dir, name, entry); err != nil {
 			return nil, err
 		}
-
-		if !eligible {
-			continue
-		}
-
-		path := filepath.Join(dir, entry.Name())
-
-		file, err := l.readAST(path)
-		if err != nil {
-			return nil, fmt.Errorf("read package goparse: %w", err)
-		}
-
-		if file.syntax.Name.Name != name {
-			continue
-		}
-
-		index.addFile(file)
 	}
 
 	l.packages[key] = index
 
 	return index, nil
+}
+
+func (l *ContextLoader) addPackageSource(index *packageIndex, dir, name string, entry fs.DirEntry) error {
+	eligible, err := isPackageSource(entry)
+	if err != nil {
+		return err
+	}
+
+	if !eligible {
+		return nil
+	}
+
+	file, err := l.readAST(filepath.Join(dir, entry.Name()))
+	if err != nil {
+		return fmt.Errorf("read package goparse: %w", err)
+	}
+
+	if file.syntax.Name.Name == name {
+		index.addFile(file)
+	}
+
+	return nil
 }
 
 func isPackageSource(entry fs.DirEntry) (bool, error) {
@@ -182,17 +186,7 @@ func (l *ContextLoader) Prepare(
 		}
 	}
 	parameters := collectSignatureTypes(target, resolve)
-
-	ast.Inspect(target, func(node ast.Node) bool {
-		if n, ok := node.(*ast.CallExpr); ok {
-			fun := directCallee(n.Fun)
-			if id, ok := fun.(*ast.Ident); ok && !parameters[id.Name] && packageReference(id, "function") {
-				resolve(id.Name, "function")
-			}
-		}
-
-		return true
-	})
+	collectDirectPackageCalls(target, parameters, resolve)
 
 	function.Context = contextItems(selected)
 
@@ -263,7 +257,32 @@ func collectSignatureTypes(
 	}
 
 	collectReceiverTypes(target.Recv, parameters, resolve)
+	resolveSignatureTypeReferences(target.Type, parameters, resolve)
 
+	return parameters
+}
+
+func resolveSignatureTypeReferences(
+	signature *ast.FuncType,
+	parameters map[string]bool,
+	resolve func(string, string),
+) {
+	for _, fields := range []*ast.FieldList{signature.Params, signature.Results} {
+		if fields == nil {
+			continue
+		}
+
+		for _, field := range fields.List {
+			resolveTypeReferences(field.Type, parameters, resolve)
+		}
+	}
+}
+
+func resolveTypeReferences(
+	node ast.Node,
+	parameters map[string]bool,
+	resolve func(string, string),
+) {
 	var inspectType func(ast.Node) bool
 
 	inspectType = func(node ast.Node) bool {
@@ -282,17 +301,20 @@ func collectSignatureTypes(
 		return true
 	}
 
-	for _, fields := range []*ast.FieldList{target.Type.Params, target.Type.Results} {
-		if fields == nil {
-			continue
+	ast.Inspect(node, inspectType)
+}
+
+func collectDirectPackageCalls(target *ast.FuncDecl, parameters map[string]bool, resolve func(string, string)) {
+	ast.Inspect(target, func(node ast.Node) bool {
+		if n, ok := node.(*ast.CallExpr); ok {
+			fun := directCallee(n.Fun)
+			if id, ok := fun.(*ast.Ident); ok && !parameters[id.Name] && packageReference(id, "function") {
+				resolve(id.Name, "function")
+			}
 		}
 
-		for _, field := range fields.List {
-			ast.Inspect(field.Type, inspectType)
-		}
-	}
-
-	return parameters
+		return true
+	})
 }
 
 func directCallee(expression ast.Expr) ast.Expr {
@@ -395,18 +417,20 @@ func collectReceiverTypes(receiverFields *ast.FieldList, parameters map[string]b
 			resolve(id.Name, typeKind)
 		}
 
-		if id, ok := r.Index.(*ast.Ident); ok {
-			parameters[id.Name] = true
-		}
+		collectReceiverTypeParameter(r.Index, parameters)
 	case *ast.IndexListExpr:
 		if id, ok := r.X.(*ast.Ident); ok {
 			resolve(id.Name, typeKind)
 		}
 
 		for _, arg := range r.Indices {
-			if id, ok := arg.(*ast.Ident); ok {
-				parameters[id.Name] = true
-			}
+			collectReceiverTypeParameter(arg, parameters)
 		}
+	}
+}
+
+func collectReceiverTypeParameter(expression ast.Expr, parameters map[string]bool) {
+	if id, ok := expression.(*ast.Ident); ok {
+		parameters[id.Name] = true
 	}
 }

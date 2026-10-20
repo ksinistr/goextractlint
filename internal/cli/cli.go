@@ -48,11 +48,7 @@ func Run(
 			return openErr
 		}
 
-		defer func() {
-			if closeErr := stream.Close(); closeErr != nil && !errors.Is(closeErr, os.ErrClosed) {
-				fmt.Fprintf(status, "close input: %v\n", closeErr)
-			}
-		}()
+		defer closeInput(stream, status)
 
 		paths0, stopRead = stream, stream.Close
 	}
@@ -94,6 +90,12 @@ func Run(
 	}
 
 	return nil
+}
+
+func closeInput(stream io.Closer, status io.Writer) {
+	if err := stream.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+		fmt.Fprintf(status, "close input: %v\n", err)
+	}
 }
 
 type functionSelection struct {

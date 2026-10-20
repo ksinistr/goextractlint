@@ -31,21 +31,21 @@ func Walk(
 		})
 	}
 
-	if paths0 == nil {
-		for _, path := range paths {
-			if err := process(path); err != nil {
-				return fmt.Errorf("process source path: %w", err)
-			}
-		}
-
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("context: %w", err)
-		}
-
-		return nil
+	if paths0 != nil {
+		return walkStream(ctx, paths0, stopRead, process)
 	}
 
-	return walkStream(ctx, paths0, stopRead, process)
+	for _, path := range paths {
+		if err := process(path); err != nil {
+			return fmt.Errorf("process source path: %w", err)
+		}
+	}
+
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+
+	return nil
 }
 
 func excluded(path string) bool {
@@ -129,7 +129,7 @@ func visitSource(
 		return nil
 	}
 
-	if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || seen[path] {
+	if !isSourceFile(path, entry) || seen[path] {
 		return nil
 	}
 
@@ -147,20 +147,16 @@ func visitSource(
 	return visit(path)
 }
 
+func isSourceFile(path string, entry fs.DirEntry) bool {
+	return !entry.IsDir() && strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go")
+}
+
 func walkStream(ctx context.Context, paths0 io.Reader, stopRead func() error, process func(string) error) error {
 	done := make(chan struct{})
 	defer close(done)
 
 	if stopRead != nil {
-		go func() {
-			select {
-			case <-ctx.Done():
-				if err := stopRead(); err != nil {
-					return
-				}
-			case <-done:
-			}
-		}()
+		go stopOnCancellation(ctx, done, stopRead)
 	}
 
 	reader := bufio.NewReader(paths0)
@@ -182,6 +178,16 @@ func walkStream(ctx context.Context, paths0 io.Reader, stopRead func() error, pr
 		if err := process(path); err != nil {
 			return fmt.Errorf("process stream path: %w", err)
 		}
+	}
+}
+
+func stopOnCancellation(ctx context.Context, done <-chan struct{}, stopRead func() error) {
+	select {
+	case <-ctx.Done():
+		if err := stopRead(); err != nil {
+			return
+		}
+	case <-done:
 	}
 }
 

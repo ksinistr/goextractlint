@@ -103,26 +103,18 @@ A nonzero exit code means a technical error; output may be partial.`)
 		ranges:             *ranges,
 		rangesFrom:         *rangesFrom,
 		explicitRangesFrom: explicit["ranges-from"],
+		noCache:            *noCache,
+		refreshCache:       *refreshCache,
+		backend:            backend{model: *jevModel, endpoint: *endpoint, maxTokens: *maxTokens},
+		timeout:            *timeout,
 	}
 
 	if err := validateInputs(options, flags.NArg()); err != nil {
 		return cliOptions{}, err
 	}
 
-	if *noCache && *refreshCache {
-		return cliOptions{}, fmt.Errorf("-no-cache and -refresh-cache are mutually exclusive")
-	}
-
-	if (explicit["jev-model"] && strings.TrimSpace(*jevModel) == "") || *timeout <= 0 {
-		return cliOptions{}, fmt.Errorf("jev model must not be empty and timeout must be positive")
-	}
-
-	if explicit["endpoint"] && strings.TrimSpace(*endpoint) == "" {
-		return cliOptions{}, fmt.Errorf("endpoint must not be empty")
-	}
-
-	if explicit["max-tokens"] && *maxTokens <= 0 {
-		return cliOptions{}, fmt.Errorf("-max-tokens must be positive")
+	if err := validateConfiguration(options, explicit); err != nil {
+		return cliOptions{}, err
 	}
 
 	selected, err := resolveBackend(backendOptions{
@@ -141,10 +133,29 @@ A nonzero exit code means a technical error; output may be partial.`)
 		options.paths = []string{"."}
 	}
 
-	options.noCache, options.refreshCache = *noCache, *refreshCache
-	options.backend, options.timeout = selected, *timeout
+	options.backend = selected
 
 	return options, nil
+}
+
+func validateConfiguration(options cliOptions, explicit map[string]bool) error {
+	if options.noCache && options.refreshCache {
+		return fmt.Errorf("-no-cache and -refresh-cache are mutually exclusive")
+	}
+
+	if (explicit["jev-model"] && strings.TrimSpace(options.backend.model) == "") || options.timeout <= 0 {
+		return fmt.Errorf("jev model must not be empty and timeout must be positive")
+	}
+
+	if explicit["endpoint"] && strings.TrimSpace(options.backend.endpoint) == "" {
+		return fmt.Errorf("endpoint must not be empty")
+	}
+
+	if explicit["max-tokens"] && options.backend.maxTokens <= 0 {
+		return fmt.Errorf("-max-tokens must be positive")
+	}
+
+	return nil
 }
 
 func registerRangeFlag(flags *flag.FlagSet) *[]linerange.Range {

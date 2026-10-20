@@ -24,13 +24,8 @@ func (c *Client) evaluateRequest(ctx context.Context, request preparedRequest) (
 	}
 
 	key := requestKey(request.Endpoint, request.Model, request.Body)
-	if c.store != nil && !c.config.RefreshCache {
-		decision, hit, err := c.store.Get(key)
-		c.diagnostic(err)
-
-		if err == nil && hit && decision.Validate() == nil {
-			return decision, nil
-		}
+	if decision, hit := c.cachedDecision(key); hit {
+		return decision, nil
 	}
 
 	body, err := c.call(ctx, request)
@@ -52,6 +47,17 @@ func (c *Client) evaluateRequest(ctx context.Context, request preparedRequest) (
 	}
 
 	return decision, nil
+}
+
+func (c *Client) cachedDecision(key string) (Decision, bool) {
+	if c.store == nil || c.config.RefreshCache {
+		return Decision{}, false
+	}
+
+	decision, hit, err := c.store.Get(key)
+	c.diagnostic(err)
+
+	return decision, err == nil && hit && decision.Validate() == nil
 }
 
 func requestKey(endpoint, model string, data []byte) string {

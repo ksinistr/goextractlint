@@ -33,7 +33,14 @@ Run `goextractlint -help` for flags, defaults, and more examples.
 stdout emits one JSONL record per completed analysis attempt; diagnostics go to stderr.
 
 ```jsonl
-{"file":"/work/project/service.go","function":"(*Service).Process","start_line":42,"end_line":85,"verdict":"extract","extract_probability":0.87}
+{
+    "file":"/work/project/service.go",
+    "function":"(*Service).Process",
+    "start_line":42,
+    "end_line":85,
+    "verdict":"extract",
+    "extract_probability":0.87
+}
 ```
 
 Verdicts are `extract`, `keep`, or `insufficient_context`.

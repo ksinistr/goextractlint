@@ -1,4 +1,4 @@
-package analysis_test
+package main
 
 import (
 	"bytes"
@@ -11,13 +11,13 @@ import (
 	"strings"
 	"testing"
 
-	"goextractlint/internal/analysis"
 	"goextractlint/internal/cache"
-	"goextractlint/internal/source"
+	"goextractlint/internal/domain"
+	"goextractlint/internal/system1"
 )
 
 type recordingStore struct {
-	underlying     analysis.DecisionStore
+	underlying     cache.DecisionStore
 	getKey, putKey string
 	fail           bool
 }
@@ -27,14 +27,10 @@ const (
 	testModel  = "model"
 )
 
-const (
-	testSourcePath = "a.go"
-)
-
-func (s *recordingStore) Get(key string) (analysis.Decision, bool, error) {
+func (s *recordingStore) Get(key string) (domain.Decision, bool, error) {
 	s.getKey = key
 	if s.fail {
-		return analysis.Decision{}, false, errors.New("read denied")
+		return domain.Decision{}, false, errors.New("read denied")
 	}
 
 	decision, hit, err := s.underlying.Get(key)
@@ -45,7 +41,7 @@ func (s *recordingStore) Get(key string) (analysis.Decision, bool, error) {
 	return decision, hit, nil
 }
 
-func (s *recordingStore) Put(key string, d analysis.Decision) error {
+func (s *recordingStore) Put(key string, d domain.Decision) error {
 	s.putKey = key
 	if s.fail {
 		return errors.New("write denied")
@@ -59,7 +55,7 @@ func (s *recordingStore) Put(key string, d analysis.Decision) error {
 }
 
 func TestCacheRequests(t *testing.T) {
-	for _, verdict := range []analysis.Verdict{analysis.Extract, analysis.Keep, analysis.InsufficientContext} {
+	for _, verdict := range []domain.Verdict{domain.Extract, domain.Keep, domain.InsufficientContext} {
 		t.Run(string(verdict), func(t *testing.T) {
 			calls := 0
 
@@ -83,14 +79,14 @@ func TestCacheRequests(t *testing.T) {
 			defer server.Close()
 
 			store := &recordingStore{underlying: cache.New(t.TempDir())}
-			client := analysis.NewCachedAnalyzer(
-				analysis.NewClient(server.Client(), "secret"),
+			client := cache.NewCachedAnalyzer(
+				newSystem1Analyzer(system1.NewClient(server.Client(), "secret")),
 				store,
 				false,
 				io.Discard,
 			)
 
-			function := source.Function{File: testSourcePath, Name: targetName, Source: "func Target(){}"}
+			function := domain.Function{File: testSourcePath, Name: targetName, Source: "func Target(){}"}
 			for range 2 {
 				d, err := client.Analyze(context.Background(), prepared(t, server.URL, testModel, function))
 				if err != nil || d.Verdict != verdict {
@@ -99,19 +95,19 @@ func TestCacheRequests(t *testing.T) {
 			}
 
 			if calls != 1 || store.getKey != store.putKey ||
-				store.getKey != analysis.RequestKey(server.URL+"/api/alpha/decisions", testModel, body) {
+				store.getKey != cache.RequestKey(server.URL+"/api/alpha/decisions", testModel, body) {
 				t.Fatalf("calls=%d keys=%s %s", calls, store.getKey, store.putKey)
 			}
 
 			variants := []struct {
 				name, model, endpoint string
-				function              source.Function
+				function              domain.Function
 			}{
 				{
 					name:     "source",
 					model:    testModel,
 					endpoint: server.URL,
-					function: source.Function{
+					function: domain.Function{
 						File:   testSourcePath,
 						Name:   targetName,
 						Source: "func Target(){ println(1) }",
@@ -123,29 +119,29 @@ func TestCacheRequests(t *testing.T) {
 					name:     "imports",
 					model:    testModel,
 					endpoint: server.URL,
-					function: source.Function{
+					function: domain.Function{
 						File:    testSourcePath,
 						Name:    targetName,
 						Source:  function.Source,
-						Context: []source.ContextItem{{Kind: "import", Source: `"fmt"`}},
+						Context: []domain.ContextItem{{Kind: "import", Source: `"fmt"`}},
 					},
 				},
 				{
-					name:     "type",
+					name:     typeContextKind,
 					model:    testModel,
 					endpoint: server.URL,
-					function: source.Function{
+					function: domain.Function{
 						File:    testSourcePath,
 						Name:    targetName,
 						Source:  function.Source,
-						Context: []source.ContextItem{{Kind: "type", Source: "type Box int"}},
+						Context: []domain.ContextItem{{Kind: typeContextKind, Source: "type Box int"}},
 					},
 				},
 				{
 					name:     "truncated",
 					model:    testModel,
 					endpoint: server.URL,
-					function: source.Function{
+					function: domain.Function{
 						File:             testSourcePath,
 						Name:             targetName,
 						Source:           function.Source,
@@ -157,8 +153,8 @@ func TestCacheRequests(t *testing.T) {
 				t.Run(v.name, func(t *testing.T) {
 					before := calls
 
-					c := analysis.NewCachedAnalyzer(
-						analysis.NewClient(server.Client(), "secret"),
+					c := cache.NewCachedAnalyzer(
+						newSystem1Analyzer(system1.NewClient(server.Client(), "secret")),
 						store,
 						false,
 						io.Discard,
@@ -184,8 +180,8 @@ func TestCacheRequests(t *testing.T) {
 				}
 			}
 
-			refresh := analysis.NewCachedAnalyzer(
-				analysis.NewClient(server.Client(), "secret"),
+			refresh := cache.NewCachedAnalyzer(
+				newSystem1Analyzer(system1.NewClient(server.Client(), "secret")),
 				store,
 				true,
 				io.Discard,
@@ -207,8 +203,8 @@ func TestCacheRequests(t *testing.T) {
 
 			var diagnostics bytes.Buffer
 
-			failing := analysis.NewCachedAnalyzer(
-				analysis.NewClient(server.Client(), "secret"),
+			failing := cache.NewCachedAnalyzer(
+				newSystem1Analyzer(system1.NewClient(server.Client(), "secret")),
 				store,
 				false,
 				&diagnostics,
@@ -234,17 +230,17 @@ func TestRequestKey(t *testing.T) {
 		{"exact bytes", []byte(`{"a":1}`), []byte(`{ "a":1 }`)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if analysis.RequestKey("endpoint", testModel, tc.a) == analysis.RequestKey("endpoint", testModel, tc.b) {
+			if cache.RequestKey("endpoint", testModel, tc.a) == cache.RequestKey("endpoint", testModel, tc.b) {
 				t.Fatal("identity did not change")
 			}
 		})
 	}
 }
 
-func prepared(t *testing.T, endpoint, model string, function source.Function) analysis.PreparedRequest {
+func prepared(t *testing.T, endpoint, model string, function domain.Function) preparedRequest {
 	t.Helper()
 
-	request, err := analysis.Prepare(endpoint, model, function)
+	request, err := prepareAnalysis(endpoint, model, function)
 	if err != nil {
 		t.Fatal(err)
 	}

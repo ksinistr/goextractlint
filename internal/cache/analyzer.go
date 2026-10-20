@@ -1,4 +1,4 @@
-package analysis
+package cache
 
 import (
 	"context"
@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+
+	"goextractlint/internal/domain"
+	"goextractlint/internal/system1"
 )
 
 type CachedAnalyzer struct {
@@ -25,9 +28,9 @@ func (c *CachedAnalyzer) diagnostic(err error) {
 	}
 }
 
-func (c *CachedAnalyzer) Analyze(ctx context.Context, request PreparedRequest) (Decision, error) {
+func (c *CachedAnalyzer) Analyze(ctx context.Context, request system1.PreparedRequest) (domain.Decision, error) {
 	if err := ctx.Err(); err != nil {
-		return Decision{}, fmt.Errorf("context: %w", err)
+		return domain.Decision{}, fmt.Errorf("context: %w", err)
 	}
 
 	key := RequestKey(request.Endpoint, request.Model, request.Body)
@@ -42,15 +45,15 @@ func (c *CachedAnalyzer) Analyze(ctx context.Context, request PreparedRequest) (
 
 	decision, err := c.analyzer.Analyze(ctx, request)
 	if err != nil {
-		return Decision{}, fmt.Errorf("analyze function: %w", err)
+		return domain.Decision{}, fmt.Errorf("analyze function: %w", err)
 	}
 
 	if err := decision.Validate(); err != nil {
-		return Decision{}, fmt.Errorf("validate decision: %w", err)
+		return domain.Decision{}, fmt.Errorf("validate decision: %w", err)
 	}
 
 	if err := ctx.Err(); err != nil {
-		return Decision{}, fmt.Errorf("context: %w", err)
+		return domain.Decision{}, fmt.Errorf("context: %w", err)
 	}
 
 	c.diagnostic(c.store.Put(key, decision))
@@ -59,8 +62,8 @@ func (c *CachedAnalyzer) Analyze(ctx context.Context, request PreparedRequest) (
 }
 
 type DecisionStore interface {
-	Get(string) (Decision, bool, error)
-	Put(string, Decision) error
+	Get(string) (domain.Decision, bool, error)
+	Put(string, domain.Decision) error
 }
 
 func RequestKey(endpoint, model string, data []byte) string {
@@ -74,4 +77,8 @@ func RequestKey(endpoint, model string, data []byte) string {
 	}
 
 	return fmt.Sprintf("%x", sha256.Sum256(identity))
+}
+
+type Analyzer interface {
+	Analyze(context.Context, system1.PreparedRequest) (domain.Decision, error)
 }

@@ -1,4 +1,4 @@
-package analysis
+package domain
 
 func Principle() string {
 	return "Evaluate only Martin Fowler's Function Length principle: separate intention from " +

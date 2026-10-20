@@ -1,4 +1,4 @@
-package analysis
+package system1
 
 import (
 	"bytes"
@@ -9,8 +9,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-
-	"goextractlint/internal/source"
 )
 
 type HTTPClient interface {
@@ -23,10 +21,6 @@ type PreparedRequest struct {
 	Body     []byte
 }
 
-type Analyzer interface {
-	Analyze(context.Context, PreparedRequest) (Decision, error)
-}
-
 type Client struct {
 	http   HTTPClient
 	apiKey string
@@ -36,46 +30,7 @@ func NewClient(client HTTPClient, apiKey string) *Client {
 	return &Client{http: client, apiKey: apiKey}
 }
 
-func Prepare(endpoint, model string, function source.Function) (PreparedRequest, error) {
-	payload := map[string]any{
-		"model": model,
-		"state": map[string]any{"principle": Principle(), "function": function},
-		"questions": map[string]any{
-			"verdict": map[string]any{
-				"type": "choice",
-				"instructions": "Using the principle in state, decide whether this function contains a fragment worth " +
-					"extracting to reveal intention.",
-				"criteria": map[string]string{
-					"extract": "A specific fragment hides an intention behind implementation details; an " +
-						"intention-revealing named function would improve understanding of the enclosing " +
-						"function.",
-					"keep": "The function is understandable at its current level; extraction would merely relocate " +
-						"details or add indirection without clarifying intention.",
-					"insufficient_context": "Missing domain or type information prevents a reliable judgment about whether " +
-						"extraction would clarify intention.",
-				},
-			},
-		},
-	}
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return PreparedRequest{}, fmt.Errorf("encode request: %w", err)
-	}
-
-	return PreparedRequest{strings.TrimRight(endpoint, "/") + "/api/alpha/decisions", model, data}, nil
-}
-
-func (c *Client) Analyze(ctx context.Context, prepared PreparedRequest) (Decision, error) {
-	body, err := c.call(ctx, prepared)
-	if err != nil {
-		return Decision{}, err
-	}
-
-	return Decode(body)
-}
-
-func (c *Client) call(ctx context.Context, prepared PreparedRequest) (body []byte, resultErr error) {
+func (c *Client) Call(ctx context.Context, prepared PreparedRequest) (body []byte, resultErr error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, prepared.Endpoint, bytes.NewReader(prepared.Body))
 	if err != nil {
 		return nil, fmt.Errorf("net/http.NewRequestWithContext: %w", err)

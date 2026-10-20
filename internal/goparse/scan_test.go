@@ -1,4 +1,4 @@
-package source
+package goparse
 
 import (
 	"context"
@@ -10,6 +10,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"goextractlint/internal/domain"
+	"goextractlint/internal/filewalk"
 )
 
 const spacedSourcePath = "space \n.go"
@@ -76,7 +79,7 @@ func TestWalk(t *testing.T) {
 				nil,
 				nil,
 				NewContextLoader(),
-				func(function Function) error {
+				func(function domain.Function) error {
 					path, err := filepath.Rel(root, function.File)
 					if err != nil {
 						return fmt.Errorf("path/filepath.Rel: %w", err)
@@ -209,7 +212,7 @@ func TestPaths(t *testing.T) {
 
 			var got []string
 
-			err := Walk(context.Background(), tc.args, input, nil, NewContextLoader(), func(f Function) error {
+			err := Walk(context.Background(), tc.args, input, nil, NewContextLoader(), func(f domain.Function) error {
 				got = append(got, f.Name)
 				if !filepath.IsAbs(f.File) {
 					t.Fatal("relative identity")
@@ -256,7 +259,7 @@ func TestPathPipe(t *testing.T) {
 
 			done := make(chan error, 1)
 			go func() {
-				done <- Walk(ctx, nil, input, reader.Close, NewContextLoader(), func(f Function) error { visited <- f.Name; return nil })
+				done <- Walk(ctx, nil, input, reader.Close, NewContextLoader(), func(f domain.Function) error { visited <- f.Name; return nil })
 			}()
 
 			if _, err := io.WriteString(writer, filepath.Join(root, testSourcePath)+"\x00"); err != nil {
@@ -313,4 +316,33 @@ func (r *waitingReader) Read(b []byte) (int, error) {
 	}
 
 	return n, nil
+}
+
+func Walk(
+	ctx context.Context,
+	paths []string,
+	input io.Reader,
+	closeInput func() error,
+	loader *ContextLoader,
+	visit func(domain.Function) error,
+) error {
+	err := filewalk.Walk(ctx, paths, input, closeInput, func(path string) error {
+		functions, err := loader.Functions(path)
+		if err != nil {
+			return err
+		}
+
+		for _, f := range functions {
+			if err := visit(f); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("walk source files: %w", err)
+	}
+
+	return nil
 }

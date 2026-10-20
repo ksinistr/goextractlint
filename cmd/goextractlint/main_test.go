@@ -14,8 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"goextractlint/internal/session"
-	"goextractlint/internal/source"
+	"goextractlint/internal/domain"
 )
 
 type transportFunc func(*http.Request) (*http.Response, error)
@@ -124,7 +123,7 @@ func TestCLI(t *testing.T) {
 		{name: "empty", args: []string{files0Flag, "-"}},
 		{name: "api error", args: []string{testSourcePath, siblingSourcePath}, wantCalls: 2, lines: 2, bad: true},
 		{name: "source error", args: []string{"sub"}, bad: true},
-		{name: "missing", args: []string{testSourcePath, "missing"}, wantCalls: 1, lines: 1, bad: true},
+		{name: missingPath, args: []string{testSourcePath, missingPath}, wantCalls: 1, lines: 1, bad: true},
 		{name: "malformed input", args: []string{files0Flag, "-"}, list: "a.go\x00tail", wantCalls: 1, lines: 1, bad: true},
 		{name: "cancel", args: []string{testSourcePath, siblingSourcePath}, wantCalls: 1, bad: true},
 		{name: "output", args: []string{testSourcePath, siblingSourcePath}, wantCalls: 1, bad: true},
@@ -185,7 +184,10 @@ func TestCLI(t *testing.T) {
 					return response(429, "busy"), nil
 				}
 
-				return response(200, answer([]string{"extract", "keep", "insufficient_context"}[(calls-1)%3])), nil
+				return response(
+					200,
+					answer([]string{"extract", keepAnswer, insufficientContextAnswer}[(calls-1)%3]),
+				), nil
 			})}
 
 			var input io.ReadCloser = failReader{t}
@@ -240,14 +242,14 @@ func TestStreamingContextCache(t *testing.T) {
 			cacheDir := t.TempDir()
 			calls := 0
 
-			var inputs []source.Function
+			var inputs []domain.Function
 
 			client := &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
 				calls++
 
 				var payload struct {
 					State struct {
-						Function source.Function `json:"function"`
+						Function domain.Function `json:"function"`
 					} `json:"state"`
 				}
 				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -256,7 +258,7 @@ func TestStreamingContextCache(t *testing.T) {
 
 				inputs = append(inputs, payload.State.Function)
 
-				return response(200, answer("keep")), nil
+				return response(200, answer(keepAnswer)), nil
 			})}
 			run := func(flags []string, input io.ReadCloser, output io.Writer) error {
 				var status bytes.Buffer
@@ -320,9 +322,9 @@ func TestStreamingContextCache(t *testing.T) {
 
 			record := <-written
 
-			var result session.Result
+			var result Result
 			if err := json.Unmarshal(record, &result); err != nil || result.Function != "(*Box).Target" ||
-				result.Verdict != "keep" {
+				result.Verdict != keepAnswer {
 				t.Fatalf("record=%s err=%v", record, err)
 			}
 

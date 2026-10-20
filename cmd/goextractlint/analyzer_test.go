@@ -1,4 +1,4 @@
-package analysis
+package main
 
 import (
 	"context"
@@ -10,7 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"goextractlint/internal/source"
+	"goextractlint/internal/domain"
+	"goextractlint/internal/system1"
 )
 
 func TestJevResponses(t *testing.T) {
@@ -24,7 +25,7 @@ func TestJevResponses(t *testing.T) {
 			name: "extract",
 			body: `{"answers":{"verdict":{"type":"choice","choice":"extract","confidence":0.8,"probabilities":{"extract":0.9,"keep":0.1,"insufficient_context":0}}},"usage":{"cost":0.0001}}`,
 		},
-		{name: "keep", body: `{"answers":{"verdict":{"type":"choice","choice":"keep"}}}`},
+		{name: keepAnswer, body: `{"answers":{"verdict":{"type":"choice","choice":"keep"}}}`},
 		{
 			name: "insufficient context",
 			body: `{"answers":{"verdict":{"type":"choice","choice":"insufficient_context"}}}`,
@@ -42,15 +43,15 @@ func TestJevResponses(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			function := source.Function{
+			function := domain.Function{
 				File:      "example.go",
 				Name:      "Example",
 				Package:   "p",
 				StartLine: 2,
 				EndLine:   2,
 				Source:    "func Example() {}",
-				Context: []source.ContextItem{
-					{Kind: "type", File: "types.go", StartLine: 2, EndLine: 2, Source: "type Value int"},
+				Context: []domain.ContextItem{
+					{Kind: typeContextKind, File: "types.go", StartLine: 2, EndLine: 2, Source: "type Value int"},
 				},
 			}
 
@@ -67,7 +68,7 @@ func TestJevResponses(t *testing.T) {
 					Model string `json:"model"`
 					State struct {
 						Principle string          `json:"principle"`
-						Function  source.Function `json:"function"`
+						Function  domain.Function `json:"function"`
 					} `json:"state"`
 					Questions map[string]any `json:"questions"`
 				}
@@ -84,7 +85,7 @@ func TestJevResponses(t *testing.T) {
 					t.Error(err)
 				}
 
-				if payload.Model != "test/jev" || payload.State.Principle != Principle() ||
+				if payload.Model != "test/jev" || payload.State.Principle != domain.Principle() ||
 					!reflect.DeepEqual(payload.State.Function, function) ||
 					payload.Questions["verdict"] == nil {
 					t.Error("incorrect model, function or instructions")
@@ -100,9 +101,9 @@ func TestJevResponses(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := NewClient(server.Client(), "test-key")
+			client := newSystem1Analyzer(system1.NewClient(server.Client(), "test-key"))
 
-			prepared, err := Prepare(server.URL, "test/jev", function)
+			prepared, err := prepareAnalysis(server.URL, "test/jev", function)
 			if err != nil {
 				t.Fatal(err)
 			}

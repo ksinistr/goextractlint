@@ -1,4 +1,4 @@
-package source
+package goparse
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"goextractlint/internal/domain"
 )
 
 const (
@@ -319,7 +321,7 @@ func TestTargetFiltersAndLazyContext(t *testing.T) {
 
 			loader := NewContextLoader()
 
-			var got []Function
+			var got []domain.Function
 
 			err := Walk(
 				context.Background(),
@@ -327,7 +329,7 @@ func TestTargetFiltersAndLazyContext(t *testing.T) {
 				nil,
 				nil,
 				loader,
-				func(f Function) error {
+				func(f domain.Function) error {
 					f, err := loader.Prepare(context.Background(), f)
 					if err == nil {
 						got = append(got, f)

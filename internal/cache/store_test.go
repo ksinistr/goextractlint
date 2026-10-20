@@ -8,18 +8,18 @@ import (
 	"strings"
 	"testing"
 
-	"goextractlint/internal/analysis"
+	"goextractlint/internal/domain"
 )
 
 func TestStore(t *testing.T) {
-	for _, verdict := range []analysis.Verdict{analysis.Extract, analysis.Keep, analysis.InsufficientContext} {
+	for _, verdict := range []domain.Verdict{domain.Extract, domain.Keep, domain.InsufficientContext} {
 		t.Run(string(verdict), func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "cache")
 			store := New(dir)
 			key := strings.Repeat("a", 64)
 			p := 0.5
 
-			want := analysis.Decision{Verdict: verdict, ExtractProbability: &p}
+			want := domain.Decision{Verdict: verdict, ExtractProbability: &p}
 			if err := store.Put(key, want); err != nil {
 				t.Fatal(err)
 			}

@@ -1,13 +1,10 @@
-package source
+package filewalk
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"go/ast"
-	"go/format"
 	"io"
 	"io/fs"
 	"os"
@@ -15,27 +12,12 @@ import (
 	"strings"
 )
 
-type Function struct {
-	snapshot         *parsedFile
-	declaration      *ast.FuncDecl
-	File             string        `json:"file"`
-	Package          string        `json:"package"`
-	Name             string        `json:"name"`
-	Receiver         string        `json:"receiver,omitempty"`
-	StartLine        int           `json:"start_line"`
-	EndLine          int           `json:"end_line"`
-	Source           string        `json:"source"`
-	Context          []ContextItem `json:"context,omitempty"`
-	ContextTruncated bool          `json:"context_truncated"`
-}
-
 func Walk(
 	ctx context.Context,
 	paths []string,
 	paths0 io.Reader,
 	stopRead func() error,
-	loader *ContextLoader,
-	visit func(Function) error,
+	visit func(string) error,
 ) error {
 	seen := make(map[string]bool)
 
@@ -45,7 +27,7 @@ func Walk(
 				return fmt.Errorf("walk source: %w", err)
 			}
 
-			return visitSource(ctx, path, entry, seen, loader, visit)
+			return visitSource(ctx, path, entry, seen, visit)
 		})
 	}
 
@@ -74,63 +56,6 @@ func excluded(path string) bool {
 	}
 
 	return false
-}
-
-func (l *ContextLoader) Functions(path string) ([]Function, error) {
-	file, err := l.readAST(path)
-	if err != nil {
-		return nil, err
-	}
-
-	var functions []Function
-
-	for _, declaration := range file.syntax.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Body == nil {
-			continue
-		}
-
-		metadata, err := functionFromDeclaration(file, function)
-		if err != nil {
-			return nil, err
-		}
-
-		functions = append(functions, metadata)
-	}
-
-	return functions, nil
-}
-
-func functionFromDeclaration(file *parsedFile, function *ast.FuncDecl) (Function, error) {
-	start := function.Pos()
-	if function.Doc != nil {
-		start = function.Doc.Pos()
-	}
-
-	var receiver bytes.Buffer
-	if function.Recv != nil {
-		if err := format.Node(&receiver, file.positions, function.Recv.List[0].Type); err != nil {
-			return Function{}, fmt.Errorf("go/format.Node: %w", err)
-		}
-	}
-
-	startPosition, endPosition := file.positions.Position(start), file.positions.Position(function.End())
-
-	return Function{
-		snapshot: file, declaration: function,
-		File: file.path, Package: file.syntax.Name.Name, Name: function.Name.Name,
-		Receiver: receiver.String(), StartLine: startPosition.Line,
-		EndLine: endPosition.Line,
-		Source:  string(file.data[startPosition.Offset:endPosition.Offset]),
-	}, nil
-}
-
-func (f Function) Identity() string {
-	if f.Receiver != "" {
-		return "(" + f.Receiver + ")." + f.Name
-	}
-
-	return f.Name
 }
 
 func walkPath(ctx context.Context, path string, visit fs.WalkDirFunc) error {
@@ -183,8 +108,7 @@ func visitSource(
 	path string,
 	entry fs.DirEntry,
 	seen map[string]bool,
-	loader *ContextLoader,
-	visit func(Function) error,
+	visit func(string) error,
 ) error {
 	if contextErr := ctx.Err(); contextErr != nil {
 		return fmt.Errorf("context: %w", contextErr)
@@ -213,22 +137,7 @@ func visitSource(
 
 	seen[path] = true
 
-	functions, err := loader.Functions(path)
-	if err != nil {
-		return fmt.Errorf("load functions: %w", err)
-	}
-
-	for _, function := range functions {
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("context: %w", err)
-		}
-
-		if err := visit(function); err != nil {
-			return fmt.Errorf("visit function: %w", err)
-		}
-	}
-
-	return nil
+	return visit(path)
 }
 
 func walkStream(ctx context.Context, paths0 io.Reader, stopRead func() error, process func(string) error) error {

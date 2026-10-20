@@ -51,3 +51,18 @@ Exit code `0` means no technical errors; a nonzero code means the output may be 
 
 All changes must follow the [architecture principles](ARCHITECTURE.md).
 Run `make test` and `make check` to verify changes; tests make no paid requests.
+
+## Project structure
+
+- `cmd/goextractlint`: CLI setup, analysis workflow, JSONL output, and the adapter
+  between domain concepts and System1 requests.
+- `internal/filewalk`: incremental discovery of Go files, exclusions, and path
+  deduplication; does not parse file contents.
+- `internal/goparse`: Go parsing, function extraction, and bounded package context;
+  keeps AST snapshots and package indexes in memory.
+- `internal/domain`: functions, context, decisions, validation, and the Extract
+  Function criterion.
+- `internal/system1`: HTTP transport for System1 endpoints, independent of domain
+  concepts.
+- `internal/cache`: decision caching and atomic filesystem storage, keyed by the
+  exact request, endpoint, and model.

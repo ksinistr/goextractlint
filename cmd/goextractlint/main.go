@@ -15,10 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"goextractlint/internal/analysis"
 	"goextractlint/internal/cache"
-	"goextractlint/internal/session"
-	"goextractlint/internal/source"
+	"goextractlint/internal/goparse"
+	"goextractlint/internal/system1"
 )
 
 func main() {
@@ -70,7 +69,7 @@ func runCLI(
 	transport := *httpClient
 	transport.Timeout = options.timeout
 
-	var analyzer analysis.Analyzer = analysis.NewClient(&transport, key)
+	var analyzer functionAnalyzer = newSystem1Analyzer(system1.NewClient(&transport, key))
 
 	var (
 		paths0   io.Reader
@@ -99,12 +98,12 @@ func runCLI(
 		}
 	}
 
-	err = session.Run(
+	err = runAnalysis(
 		ctx,
 		options.paths,
 		paths0,
 		stopRead,
-		source.NewContextLoader(),
+		goparse.NewContextLoader(),
 		analyzer,
 		endpoint,
 		options.model,
@@ -119,11 +118,11 @@ func runCLI(
 }
 
 func cachedAnalyzer(
-	analyzer analysis.Analyzer,
+	analyzer functionAnalyzer,
 	refresh bool,
 	userCacheDir func() (string, error),
 	status io.Writer,
-) (analysis.Analyzer, error) {
+) (functionAnalyzer, error) {
 	directory, err := userCacheDir()
 	if err != nil {
 		fmt.Fprintf(status, "cache: %v\n", err)
@@ -138,7 +137,7 @@ func cachedAnalyzer(
 	projectHash := fmt.Sprintf("%x", sha256.Sum256([]byte(root)))
 	store := cache.New(filepath.Join(directory, "goextractlint", "v1", projectHash))
 
-	return analysis.NewCachedAnalyzer(analyzer, store, refresh, status), nil
+	return cache.NewCachedAnalyzer(analyzer, store, refresh, status), nil
 }
 
 func openPaths(path string, input io.ReadCloser) (io.ReadCloser, error) {
@@ -231,7 +230,7 @@ A nonzero exit code means a technical error; output may be partial.`)
 	}
 
 	if strings.TrimSpace(*jevModel) == "" || *timeout <= 0 {
-		return cliOptions{}, fmt.Errorf("Jev model must not be empty and timeout must be positive")
+		return cliOptions{}, fmt.Errorf("jev model must not be empty and timeout must be positive")
 	}
 
 	paths := flags.Args()

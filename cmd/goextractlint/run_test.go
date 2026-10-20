@@ -1,4 +1,4 @@
-package session
+package main
 
 import (
 	"bytes"
@@ -11,11 +11,11 @@ import (
 	"strings"
 	"testing"
 
-	"goextractlint/internal/analysis"
-	"goextractlint/internal/source"
+	"goextractlint/internal/domain"
+	"goextractlint/internal/goparse"
 )
 
-type analyzerFunc func(context.Context, analysis.PreparedRequest) (analysis.Decision, error)
+type analyzerFunc func(context.Context, preparedRequest) (domain.Decision, error)
 
 const (
 	extractAnswer = "extract"
@@ -34,13 +34,13 @@ const (
 	writerMode       = "writer"
 )
 
-func (f analyzerFunc) Analyze(ctx context.Context, r analysis.PreparedRequest) (analysis.Decision, error) {
+func (f analyzerFunc) Analyze(ctx context.Context, r preparedRequest) (domain.Decision, error) {
 	return f(ctx, r)
 }
 
-type writerFunc func([]byte) (int, error)
+type runWriterFunc func([]byte) (int, error)
 
-func (f writerFunc) Write(b []byte) (int, error) { return f(b) }
+func (f runWriterFunc) Write(b []byte) (int, error) { return f(b) }
 
 func TestRun(t *testing.T) {
 	for _, tc := range []struct {
@@ -48,9 +48,9 @@ func TestRun(t *testing.T) {
 		answers             []string
 		probability, method bool
 	}{
-		{name: "all verdicts", answers: []string{extractAnswer, keepAnswer, "insufficient_context"}},
+		{name: "all verdicts", answers: []string{extractAnswer, keepAnswer, insufficientContextAnswer}},
 		{name: "error continues", answers: []string{errorAnswer, keepAnswer, extractAnswer}},
-		{name: "probability and receiver", answers: []string{extractAnswer, keepAnswer, "insufficient_context"}, probability: true, method: true},
+		{name: "probability and receiver", answers: []string{extractAnswer, keepAnswer, insufficientContextAnswer}, probability: true, method: true},
 		{name: "empty"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -75,7 +75,7 @@ func TestRun(t *testing.T) {
 			var output, status bytes.Buffer
 
 			calls := 0
-			analyzer := analyzerFunc(func(_ context.Context, _ analysis.PreparedRequest) (analysis.Decision, error) {
+			analyzer := analyzerFunc(func(_ context.Context, _ preparedRequest) (domain.Decision, error) {
 				if calls > 0 && bytes.Count(output.Bytes(), []byte("\n")) != calls {
 					t.Fatal("previous result not written")
 				}
@@ -84,10 +84,10 @@ func TestRun(t *testing.T) {
 				calls++
 
 				if answer == errorAnswer {
-					return analysis.Decision{}, errors.New("HTTP 429")
+					return domain.Decision{}, errors.New("HTTP 429")
 				}
 
-				d := analysis.Decision{Verdict: analysis.Verdict(answer)}
+				d := domain.Decision{Verdict: domain.Verdict(answer)}
 
 				if tc.probability {
 					p := 0.75
@@ -96,12 +96,12 @@ func TestRun(t *testing.T) {
 
 				return d, nil
 			})
-			err := Run(
+			err := runAnalysis(
 				context.Background(),
 				[]string{root},
 				nil,
 				nil,
-				source.NewContextLoader(),
+				goparse.NewContextLoader(),
 				analyzer,
 				"http://unused",
 				"model",
@@ -205,23 +205,34 @@ func TestFatalStops(t *testing.T) {
 			calls := 0
 
 			if mode == writerMode || mode == writerStopsInput {
-				out = writerFunc(func([]byte) (int, error) { return 0, errors.New("closed pipe") })
+				out = runWriterFunc(func([]byte) (int, error) { return 0, errors.New("closed pipe") })
 			}
 
 			if mode == cancelBefore {
 				cancel()
 			}
 
-			analyzer := analyzerFunc(func(context.Context, analysis.PreparedRequest) (analysis.Decision, error) {
+			analyzer := analyzerFunc(func(context.Context, preparedRequest) (domain.Decision, error) {
 				calls++
 				if mode == cancelRequest && calls == 2 {
 					cancel()
-					return analysis.Decision{}, context.Canceled
+					return domain.Decision{}, context.Canceled
 				}
 
-				return analysis.Decision{Verdict: analysis.Keep}, nil
+				return domain.Decision{Verdict: domain.Keep}, nil
 			})
-			err := Run(ctx, paths, input, nil, source.NewContextLoader(), analyzer, "http://unused", "m", out, &status)
+			err := runAnalysis(
+				ctx,
+				paths,
+				input,
+				nil,
+				goparse.NewContextLoader(),
+				analyzer,
+				"http://unused",
+				"m",
+				out,
+				&status,
+			)
 
 			wantCalls := 1
 			if mode == cancelRequest {
@@ -259,3 +270,9 @@ func (r *singleRead) Read(b []byte) (int, error) {
 
 	return n, nil
 }
+
+const (
+	typeContextKind           = "type"
+	missingPath               = "missing"
+	insufficientContextAnswer = "insufficient_context"
+)

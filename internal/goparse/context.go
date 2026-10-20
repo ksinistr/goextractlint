@@ -1,4 +1,4 @@
-package source
+package goparse
 
 import (
 	"context"
@@ -13,25 +13,20 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"goextractlint/internal/domain"
 )
 
 const ContextBudget = 16384
 
 const typeKind = "type"
 
-type ContextItem struct {
-	Kind      string `json:"kind"`
-	File      string `json:"file"`
-	StartLine int    `json:"start_line"`
-	EndLine   int    `json:"end_line"`
-	Source    string `json:"source"`
-}
-
 type parsedFile struct {
 	path      string
 	data      []byte
 	positions *token.FileSet
 	syntax    *ast.File
+	functions map[functionLocation]*ast.FuncDecl
 }
 type definition struct {
 	file  *parsedFile
@@ -85,7 +80,13 @@ func readAST(path string) (*parsedFile, error) {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 
-	return &parsedFile{path, data, positions, syntax}, nil
+	return &parsedFile{
+		path:      path,
+		data:      data,
+		positions: positions,
+		syntax:    syntax,
+		functions: make(map[functionLocation]*ast.FuncDecl),
+	}, nil
 }
 
 func (l *ContextLoader) load(
@@ -122,7 +123,7 @@ func (l *ContextLoader) load(
 
 		file, err := l.readAST(path)
 		if err != nil {
-			return nil, fmt.Errorf("read package source: %w", err)
+			return nil, fmt.Errorf("read package goparse: %w", err)
 		}
 
 		if file.syntax.Name.Name != name {
@@ -154,14 +155,20 @@ func isPackageSource(entry fs.DirEntry) (bool, error) {
 
 func (l *ContextLoader) Prepare(
 	ctx context.Context,
-	function Function,
-) (Function, error) {
+	function domain.Function,
+) (domain.Function, error) {
 	index, err := l.load(ctx, filepath.Dir(function.File), function.Package)
 	if err != nil {
 		return function, err
 	}
 
-	file, target := function.snapshot, function.declaration
+	file := l.files[function.File]
+
+	var target *ast.FuncDecl
+	if file != nil {
+		target = file.functions[locateFunction(function)]
+	}
+
 	if file == nil || target == nil {
 		return function, fmt.Errorf("function has no source snapshot: %s", function.Identity())
 	}
@@ -203,7 +210,7 @@ func (l *ContextLoader) Prepare(
 
 func boundedContext(
 	selected map[string]definition,
-) ([]ContextItem, bool, error) {
+) ([]domain.ContextItem, bool, error) {
 	definitions := make([]definition, 0, len(selected))
 	for _, d := range selected {
 		definitions = append(definitions, d)
@@ -211,12 +218,12 @@ func boundedContext(
 
 	sortContextDefinitions(definitions)
 
-	items := make([]ContextItem, 0)
+	items := make([]domain.ContextItem, 0)
 	truncated := false
 
 	for _, d := range definitions {
 		item := contextItem(d)
-		candidate := append(append([]ContextItem{}, items...), item)
+		candidate := append(append([]domain.ContextItem{}, items...), item)
 
 		data, err := json.Marshal(candidate)
 		if err != nil {
@@ -260,15 +267,15 @@ func sortContextDefinitions(definitions []definition) {
 	})
 }
 
-func contextItem(d definition) ContextItem {
+func contextItem(d definition) domain.ContextItem {
 	start, end := d.file.positions.Position(d.start), d.file.positions.Position(d.node.End())
 
-	return ContextItem{
-		d.kind,
-		d.file.path,
-		start.Line,
-		end.Line,
-		string(d.file.data[start.Offset:end.Offset]),
+	return domain.ContextItem{
+		Kind:      d.kind,
+		File:      d.file.path,
+		StartLine: start.Line,
+		EndLine:   end.Line,
+		Source:    string(d.file.data[start.Offset:end.Offset]),
 	}
 }
 

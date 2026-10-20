@@ -1,4 +1,4 @@
-package session
+package main
 
 import (
 	"context"
@@ -7,34 +7,35 @@ import (
 	"fmt"
 	"io"
 
-	"goextractlint/internal/analysis"
-	"goextractlint/internal/source"
+	"goextractlint/internal/domain"
+	"goextractlint/internal/filewalk"
+	"goextractlint/internal/goparse"
 )
 
 type Result struct {
-	File               string           `json:"file"`
-	Function           string           `json:"function"`
-	StartLine          int              `json:"start_line"`
-	EndLine            int              `json:"end_line"`
-	Verdict            analysis.Verdict `json:"verdict,omitempty"`
-	ExtractProbability *float64         `json:"extract_probability,omitempty"`
-	Error              string           `json:"error,omitempty"`
+	File               string         `json:"file"`
+	Function           string         `json:"function"`
+	StartLine          int            `json:"start_line"`
+	EndLine            int            `json:"end_line"`
+	Verdict            domain.Verdict `json:"verdict,omitempty"`
+	ExtractProbability *float64       `json:"extract_probability,omitempty"`
+	Error              string         `json:"error,omitempty"`
 }
 
-func Run(
+func runAnalysis(
 	ctx context.Context,
 	paths []string,
 	paths0 io.Reader,
 	stopRead func() error,
-	loader *source.ContextLoader,
-	analyzer analysis.Analyzer,
+	loader *goparse.ContextLoader,
+	analyzer functionAnalyzer,
 	endpoint, model string,
 	output, diagnostics io.Writer,
 ) error {
 	encoder := json.NewEncoder(output)
 	failed := false
 
-	err := source.Walk(ctx, paths, paths0, stopRead, loader, func(function source.Function) error {
+	err := walkFunctions(ctx, paths, paths0, stopRead, loader, func(function domain.Function) error {
 		result, err := analyzeFunction(ctx, function, loader, analyzer, endpoint, model)
 		if err != nil {
 			return err
@@ -64,9 +65,9 @@ func Run(
 
 func analyzeFunction(
 	ctx context.Context,
-	function source.Function,
-	loader *source.ContextLoader,
-	analyzer analysis.Analyzer,
+	function domain.Function,
+	loader *goparse.ContextLoader,
+	analyzer functionAnalyzer,
 	endpoint, model string,
 ) (Result, error) {
 	function, err := loader.Prepare(ctx, function)
@@ -74,7 +75,7 @@ func analyzeFunction(
 		return Result{}, fmt.Errorf("prepare source context: %w", err)
 	}
 
-	request, err := analysis.Prepare(endpoint, model, function)
+	request, err := prepareAnalysis(endpoint, model, function)
 	if err != nil {
 		return Result{}, fmt.Errorf("prepare analysis request: %w", err)
 	}
@@ -111,4 +112,37 @@ func analyzeFunction(
 	}
 
 	return result, nil
+}
+
+func walkFunctions(
+	ctx context.Context,
+	paths []string,
+	paths0 io.Reader,
+	stopRead func() error,
+	loader *goparse.ContextLoader,
+	visit func(domain.Function) error,
+) error {
+	err := filewalk.Walk(ctx, paths, paths0, stopRead, func(path string) error {
+		functions, err := loader.Functions(path)
+		if err != nil {
+			return fmt.Errorf("load functions: %w", err)
+		}
+
+		for _, function := range functions {
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("context: %w", err)
+			}
+
+			if err := visit(function); err != nil {
+				return fmt.Errorf("visit function: %w", err)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("walk source files: %w", err)
+	}
+
+	return nil
 }

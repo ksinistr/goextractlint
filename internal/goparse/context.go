@@ -2,7 +2,6 @@ package goparse
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -16,8 +15,6 @@ import (
 
 	"goextractlint/internal/domain"
 )
-
-const ContextBudget = 16384
 
 const typeKind = "type"
 
@@ -188,10 +185,6 @@ func (l *ContextLoader) Prepare(
 	}
 	parameters := collectSignatureTypes(target, resolve)
 
-	for _, spec := range file.syntax.Imports {
-		add(definition{file, spec, spec.Pos(), "import"})
-	}
-
 	ast.Inspect(target, func(node ast.Node) bool {
 		if n, ok := node.(*ast.CallExpr); ok {
 			fun := directCallee(n.Fun)
@@ -203,14 +196,12 @@ func (l *ContextLoader) Prepare(
 		return true
 	})
 
-	function.Context, function.ContextTruncated, err = boundedContext(selected)
+	function.Context = contextItems(selected)
 
-	return function, err
+	return function, nil
 }
 
-func boundedContext(
-	selected map[string]definition,
-) ([]domain.ContextItem, bool, error) {
+func contextItems(selected map[string]definition) []domain.ContextItem {
 	definitions := make([]definition, 0, len(selected))
 	for _, d := range selected {
 		definitions = append(definitions, d)
@@ -218,27 +209,12 @@ func boundedContext(
 
 	sortContextDefinitions(definitions)
 
-	items := make([]domain.ContextItem, 0)
-	truncated := false
-
+	items := make([]domain.ContextItem, 0, len(definitions))
 	for _, d := range definitions {
-		item := contextItem(d)
-		candidate := append(append([]domain.ContextItem{}, items...), item)
-
-		data, err := json.Marshal(candidate)
-		if err != nil {
-			return nil, false, fmt.Errorf("encoding/json.Marshal: %w", err)
-		}
-
-		if len(data) > ContextBudget {
-			truncated = true
-			continue
-		}
-
-		items = candidate
+		items = append(items, contextItem(d))
 	}
 
-	return items, truncated, nil
+	return items
 }
 
 func sortContextDefinitions(definitions []definition) {
@@ -246,10 +222,8 @@ func sortContextDefinitions(definitions []definition) {
 		switch kind {
 		case typeKind:
 			return 0
-		case "import":
-			return 1
 		default:
-			return 2
+			return 1
 		}
 	}
 
@@ -271,11 +245,8 @@ func contextItem(d definition) domain.ContextItem {
 	start, end := d.file.positions.Position(d.start), d.file.positions.Position(d.node.End())
 
 	return domain.ContextItem{
-		Kind:      d.kind,
-		File:      d.file.path,
-		StartLine: start.Line,
-		EndLine:   end.Line,
-		Source:    string(d.file.data[start.Offset:end.Offset]),
+		Kind:   d.kind,
+		Source: string(d.file.data[start.Offset:end.Offset]),
 	}
 }
 

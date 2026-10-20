@@ -27,16 +27,21 @@ func runAnalysis(
 	paths []string,
 	paths0 io.Reader,
 	stopRead func() error,
+	include func(domain.Function) bool,
 	loader *goparse.ContextLoader,
 	analyzer functionAnalyzer,
-	endpoint, model string,
+	target backend,
 	output, diagnostics io.Writer,
 ) error {
 	encoder := json.NewEncoder(output)
 	failed := false
 
 	err := walkFunctions(ctx, paths, paths0, stopRead, loader, func(function domain.Function) error {
-		result, err := analyzeFunction(ctx, function, loader, analyzer, endpoint, model)
+		if !include(function) {
+			return nil
+		}
+
+		result, err := analyzeFunction(ctx, function, loader, analyzer, target)
 		if err != nil {
 			return err
 		}
@@ -63,19 +68,23 @@ func runAnalysis(
 	return err
 }
 
+func includeAll(domain.Function) bool {
+	return true
+}
+
 func analyzeFunction(
 	ctx context.Context,
 	function domain.Function,
 	loader *goparse.ContextLoader,
 	analyzer functionAnalyzer,
-	endpoint, model string,
+	target backend,
 ) (Result, error) {
 	function, err := loader.Prepare(ctx, function)
 	if err != nil {
 		return Result{}, fmt.Errorf("prepare source context: %w", err)
 	}
 
-	request, err := prepareAnalysis(endpoint, model, function)
+	request, err := prepareAnalysis(target, function)
 	if err != nil {
 		return Result{}, fmt.Errorf("prepare analysis request: %w", err)
 	}

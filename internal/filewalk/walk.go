@@ -68,7 +68,12 @@ func walkPath(ctx context.Context, path string, visit fs.WalkDirFunc) error {
 		return fmt.Errorf("resolve source path: %w", err)
 	}
 
-	hasSymlink, err := hasSymlinkAncestor(absolute)
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get working directory: %w", err)
+	}
+
+	hasSymlink, err := hasSymlinkAncestor(absolute, workingDir)
 	if err != nil {
 		return err
 	}
@@ -84,8 +89,8 @@ func walkPath(ctx context.Context, path string, visit fs.WalkDirFunc) error {
 	return nil
 }
 
-func hasSymlinkAncestor(path string) (bool, error) {
-	for parent := path; ; parent = filepath.Dir(parent) {
+func hasSymlinkAncestor(path, workingDir string) (bool, error) {
+	for parent := path; !trustedAncestor(parent, workingDir); parent = filepath.Dir(parent) {
 		info, err := os.Lstat(parent)
 		if err != nil {
 			return false, fmt.Errorf("inspect source ancestor: %w", err)
@@ -94,13 +99,15 @@ func hasSymlinkAncestor(path string) (bool, error) {
 		if info.Mode()&fs.ModeSymlink != 0 {
 			return true, nil
 		}
-
-		if filepath.Dir(parent) == parent {
-			break
-		}
 	}
 
 	return false, nil
+}
+
+func trustedAncestor(path, workingDir string) bool {
+	root := filepath.Dir(filepath.Dir(path)) == filepath.Dir(path)
+
+	return root || containsDir(path, workingDir)
 }
 
 func visitSource(
@@ -202,4 +209,13 @@ func readPath(ctx context.Context, reader *bufio.Reader) (string, error) {
 	}
 
 	return path[:len(path)-1], nil
+}
+
+func containsDir(parent, path string) bool {
+	relative, err := filepath.Rel(parent, path)
+	if err != nil {
+		return false
+	}
+
+	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }

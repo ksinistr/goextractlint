@@ -51,7 +51,7 @@ func TestJevResponses(t *testing.T) {
 				EndLine:   2,
 				Source:    "func Example() {}",
 				Context: []domain.ContextItem{
-					{Kind: typeContextKind, File: "types.go", StartLine: 2, EndLine: 2, Source: "type Value int"},
+					{Kind: typeContextKind, Source: "type Value int"},
 				},
 			}
 
@@ -103,7 +103,14 @@ func TestJevResponses(t *testing.T) {
 
 			client := newSystem1Analyzer(system1.NewClient(server.Client(), "test-key"))
 
-			prepared, err := prepareAnalysis(server.URL, "test/jev", function)
+			prepared, err := prepareAnalysis(
+				backend{
+					endpoint:  server.URL + "/api/alpha/decisions",
+					model:     "test/jev",
+					maxTokens: openRouterMaxTokens,
+				},
+				function,
+			)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -120,6 +127,81 @@ func TestJevResponses(t *testing.T) {
 				}
 			} else if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("error = %q, want %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func Test_fitContext(t *testing.T) {
+	small := domain.ContextItem{Kind: typeContextKind, Source: "type Small int"}
+	other := domain.ContextItem{Kind: typeContextKind, Source: "type Other int"}
+	huge := domain.ContextItem{
+		Kind:   typeContextKind,
+		Source: "type Huge struct{ F string `" + strings.Repeat("x", 8000) + "` }",
+	}
+
+	for _, tc := range []struct {
+		name          string
+		context       []domain.ContextItem
+		truncated     bool
+		maxTokens     int
+		want          []domain.ContextItem
+		wantTruncated bool
+	}{
+		{
+			name:      "all fit",
+			context:   []domain.ContextItem{small, other},
+			maxTokens: ollamaMaxTokens,
+			want:      []domain.ContextItem{small, other},
+		},
+		{
+			name:          "skip large item and include following",
+			context:       []domain.ContextItem{huge, small},
+			maxTokens:     ollamaMaxTokens,
+			want:          []domain.ContextItem{small},
+			wantTruncated: true,
+		},
+		{
+			name:          "nothing fits",
+			context:       []domain.ContextItem{small},
+			maxTokens:     1,
+			wantTruncated: true,
+		},
+		{
+			name:          "keeps earlier truncation",
+			context:       []domain.ContextItem{small},
+			truncated:     true,
+			maxTokens:     ollamaMaxTokens,
+			want:          []domain.ContextItem{small},
+			wantTruncated: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			function := domain.Function{
+				File:             "example.go",
+				Name:             "Example",
+				Source:           "func Example() {}",
+				Context:          tc.context,
+				ContextTruncated: tc.truncated,
+			}
+			target := backend{model: testModel, maxTokens: tc.maxTokens}
+
+			got, err := fitContext(target, function)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if !reflect.DeepEqual(got.Context, tc.want) || got.ContextTruncated != tc.wantTruncated {
+				t.Fatalf("context=%+v truncated=%v", got.Context, got.ContextTruncated)
+			}
+
+			data, err := encodeAnalysis(target.model, got)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if len(got.Context) > 0 && estimatedTokens(data) > tc.maxTokens {
+				t.Fatalf("estimated tokens %d exceed %d", estimatedTokens(data), tc.maxTokens)
 			}
 		})
 	}

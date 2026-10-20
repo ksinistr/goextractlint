@@ -64,3 +64,37 @@ func TestWalk(t *testing.T) {
 }
 
 const testSourcePath = "a.go"
+
+func Test_hasSymlinkAncestor(t *testing.T) {
+	for _, tc := range []struct {
+		name, path, workingDir string
+		want                   bool
+	}{
+		{name: "plain path", path: "real/a.go", workingDir: "elsewhere"},
+		{name: "symlink inside tree", path: linkedSourcePath, workingDir: "elsewhere", want: true},
+		{name: "symlink is working directory", path: linkedSourcePath, workingDir: "link"},
+		{name: "symlink above working directory", path: linkedSourcePath, workingDir: "link/sub"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(root, "real", "sub"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := os.WriteFile(filepath.Join(root, "real", "a.go"), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := os.Symlink(filepath.Join(root, "real"), filepath.Join(root, "link")); err != nil {
+				t.Fatal(err)
+			}
+
+			got, err := hasSymlinkAncestor(filepath.Join(root, tc.path), filepath.Join(root, tc.workingDir))
+			if err != nil || got != tc.want {
+				t.Fatalf("got=%v err=%v", got, err)
+			}
+		})
+	}
+}
+
+const linkedSourcePath = "link/a.go"

@@ -23,6 +23,10 @@ const (
 	testAPIKey     = "key"
 	noCacheFlag    = "-no-cache"
 	files0Flag     = "-files0-from"
+	rangeFlag      = "-range"
+	rangesFromFlag = "-ranges-from"
+	firstLineRange = testSourcePath + ":1"
+	listPath       = "LIST"
 	testSourcePath = "a.go"
 	writerStops    = "writer stops"
 )
@@ -74,8 +78,20 @@ func TestArgumentValidation(t *testing.T) {
 		{"cache conflict", []string{noCacheFlag, "-refresh-cache"}, testAPIKey},
 		{"input conflict", []string{files0Flag, "-", "."}, testAPIKey},
 		{"empty input flag", []string{"-files0-from="}, testAPIKey},
-		{"empty model", []string{"-jev-model", " "}, testAPIKey},
+		{"range without lines", []string{rangeFlag, testSourcePath}, testAPIKey},
+		{"range zero line", []string{rangeFlag, "a.go:0"}, testAPIKey},
+		{"range reversed", []string{rangeFlag, "a.go:5-2"}, testAPIKey},
+		{"range with path", []string{rangeFlag, firstLineRange, testSourcePath}, testAPIKey},
+		{"range with input list", []string{rangeFlag, firstLineRange, files0Flag, "-"}, testAPIKey},
+		{"empty ranges flag", []string{"-ranges-from="}, testAPIKey},
+		{"ranges with path", []string{rangesFromFlag, "-", testSourcePath}, testAPIKey},
+		{"empty model", []string{modelFlag, " "}, testAPIKey},
 		{"timeout", []string{"-timeout", "0"}, testAPIKey},
+		{"max tokens", []string{"-max-tokens", "0"}, testAPIKey},
+		{"empty endpoint", []string{endpointFlag, " "}, testAPIKey},
+		{"invalid endpoint", []string{endpointFlag, "localhost:11434"}, testAPIKey},
+		{"unknown provider", []string{providerFlag, unknownName}, testAPIKey},
+		{"ollama empty model", []string{providerFlag, "ollama", modelFlag, ""}, ""},
 		{testAPIKey, nil, " "},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -92,7 +108,6 @@ func TestArgumentValidation(t *testing.T) {
 				tc.args,
 				tc.key,
 				client,
-				"http://test",
 				func() (string, error) { t.Fatal("unexpected cache"); return "", nil },
 				failReader{t},
 				&out,
@@ -119,7 +134,7 @@ func TestCLI(t *testing.T) {
 		{name: "mixed paths", args: []string{siblingSourcePath, "sub", testSourcePath}, wantCalls: 3, lines: 3},
 		{name: "dash delimiter", args: []string{"--", "-target.go"}, wantCalls: 1, lines: 1},
 		{name: "stdin", args: []string{files0Flag, "-"}, list: "b.go\x00", wantCalls: 1, lines: 1},
-		{name: "external list", args: []string{files0Flag, "LIST"}, list: "a.go\x00", wantCalls: 1, lines: 1},
+		{name: "external list", args: []string{files0Flag, listPath}, list: "a.go\x00", wantCalls: 1, lines: 1},
 		{name: "empty", args: []string{files0Flag, "-"}},
 		{name: "api error", args: []string{testSourcePath, siblingSourcePath}, wantCalls: 2, lines: 2, bad: true},
 		{name: "source error", args: []string{"sub"}, bad: true},
@@ -128,6 +143,14 @@ func TestCLI(t *testing.T) {
 		{name: "cancel", args: []string{testSourcePath, siblingSourcePath}, wantCalls: 1, bad: true},
 		{name: "output", args: []string{testSourcePath, siblingSourcePath}, wantCalls: 1, bad: true},
 		{name: "cache failure", args: []string{testSourcePath}, wantCalls: 1, lines: 1, cacheBad: true},
+		{name: "range", args: []string{rangeFlag, "a.go:2"}, wantCalls: 1, lines: 1},
+		{name: "range outside functions", args: []string{rangeFlag, firstLineRange}},
+		{name: "repeated ranges", args: []string{rangeFlag, "a.go:1-2", rangeFlag, "b.go:2"}, wantCalls: 2, lines: 2},
+		{name: "ranges stdin", args: []string{rangesFromFlag, "-"}, list: "a.go:1\n\nsub/c.go:1-2\n", wantCalls: 1, lines: 1},
+		{name: "ranges file", args: []string{rangesFromFlag, listPath}, list: "b.go:2", wantCalls: 1, lines: 1},
+		{name: "ranges empty", args: []string{rangesFromFlag, "-"}},
+		{name: "malformed ranges", args: []string{rangesFromFlag, "-"}, list: "a.go:x\n", bad: true},
+		{name: "range missing file", args: []string{rangeFlag, missingPath + ":1"}, bad: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -146,7 +169,7 @@ func TestCLI(t *testing.T) {
 
 			args := append([]string(nil), tc.args...)
 			for i, s := range args {
-				if s == "LIST" {
+				if s == listPath {
 					list := filepath.Join(t.TempDir(), "list")
 					if err := os.WriteFile(list, []byte(tc.list), 0o600); err != nil {
 						t.Fatal(err)
@@ -193,7 +216,7 @@ func TestCLI(t *testing.T) {
 			var input io.ReadCloser = failReader{t}
 
 			for _, arg := range args {
-				if arg == files0Flag {
+				if arg == files0Flag || arg == rangesFromFlag {
 					input = io.NopCloser(strings.NewReader(tc.list))
 				}
 			}
@@ -207,7 +230,7 @@ func TestCLI(t *testing.T) {
 				return cacheDir, nil
 			}
 
-			err := runCLI(ctx, args, testAPIKey, client, "http://test", cacheHome, input, output, &status)
+			err := runCLI(ctx, args, testAPIKey, client, cacheHome, input, output, &status)
 			if (err != nil) != tc.bad || calls != tc.wantCalls || bytes.Count(out.Bytes(), []byte("\n")) != tc.lines {
 				t.Fatalf("err=%v calls=%d out=%s", err, calls, &out)
 			}
@@ -263,7 +286,7 @@ func TestStreamingContextCache(t *testing.T) {
 			run := func(flags []string, input io.ReadCloser, output io.Writer) error {
 				var status bytes.Buffer
 
-				err := runCLI(context.Background(), flags, testAPIKey, client, "http://test", func() (string, error) {
+				err := runCLI(context.Background(), flags, testAPIKey, client, func() (string, error) {
 					if len(flags) > 0 && flags[0] == noCacheFlag {
 						t.Error("cache initialized during bypass")
 					}
@@ -336,7 +359,7 @@ func TestStreamingContextCache(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if calls != 1 || len(inputs[0].Context) != 4 {
+			if calls != 1 || len(inputs[0].Context) != 1 || inputs[0].Context[0].Kind != typeContextKind {
 				t.Fatalf("calls=%d context=%+v", calls, inputs)
 			}
 

@@ -13,11 +13,8 @@ type Function struct {
 }
 
 type ContextItem struct {
-	Kind      string `json:"kind"`
-	File      string `json:"file"`
-	StartLine int    `json:"start_line"`
-	EndLine   int    `json:"end_line"`
-	Source    string `json:"source"`
+	Kind   string `json:"kind"`
+	Source string `json:"source"`
 }
 
 func (f Function) Identity() string {

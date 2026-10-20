@@ -95,7 +95,7 @@ func TestCacheRequests(t *testing.T) {
 			}
 
 			if calls != 1 || store.getKey != store.putKey ||
-				store.getKey != cache.RequestKey(server.URL+"/api/alpha/decisions", testModel, body) {
+				store.getKey != cache.RequestKey(server.URL, testModel, body) {
 				t.Fatalf("calls=%d keys=%s %s", calls, store.getKey, store.putKey)
 			}
 
@@ -113,7 +113,7 @@ func TestCacheRequests(t *testing.T) {
 						Source: "func Target(){ println(1) }",
 					},
 				},
-				{name: testModel, model: "other", endpoint: server.URL, function: function},
+				{name: testModel, model: unknownName, endpoint: server.URL, function: function},
 				{name: "endpoint", model: testModel, endpoint: server.URL + "/other", function: function},
 				{
 					name:     "imports",
@@ -240,7 +240,7 @@ func TestRequestKey(t *testing.T) {
 func prepared(t *testing.T, endpoint, model string, function domain.Function) preparedRequest {
 	t.Helper()
 
-	request, err := prepareAnalysis(endpoint, model, function)
+	request, err := prepareAnalysis(backend{endpoint: endpoint, model: model, maxTokens: openRouterMaxTokens}, function)
 	if err != nil {
 		t.Fatal(err)
 	}

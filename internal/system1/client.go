@@ -36,7 +36,10 @@ func (c *Client) Call(ctx context.Context, prepared PreparedRequest) (body []byt
 		return nil, fmt.Errorf("net/http.NewRequestWithContext: %w", err)
 	}
 
-	request.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if c.apiKey != "" {
+		request.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
 	request.Header.Set("Content-Type", "application/json")
 
 	response, err := c.http.Do(request)
